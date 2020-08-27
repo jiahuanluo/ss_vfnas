@@ -7,7 +7,7 @@ __pycache__/
 *.so
 # Log
 search/
-
+eval/
 # Data
 data/
 # Distribution / packaging

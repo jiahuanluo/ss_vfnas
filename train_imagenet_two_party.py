@@ -11,30 +11,34 @@ import argparse
 import torch.nn as nn
 import genotypes
 import torch.utils
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
 import torch.backends.cudnn as cudnn
 
-from torch.autograd import Variable
-from model import NetworkImageNet as Network
+from model_two_party import NetworkMulitview_A, NetworkMulitview_B
+from dataset import MultiViewDataset
 
-parser = argparse.ArgumentParser("imagenet")
-parser.add_argument('--data', type=str, default='../data/cifar10/', help='location of the data corpus')
-parser.add_argument('--batch_size', type=int, default=128, help='batch size')
+parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
+parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
+                    help='location of the data corpus')
+parser.add_argument('--name', type=str, required=True, help='experiment name')
+parser.add_argument('--batch_size', type=int, default=64, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=0.1, help='init learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
 parser.add_argument('--report_freq', type=float, default=100, help='report frequency')
-parser.add_argument('--gpu', type=int, default=2, help='gpu device id')
+parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
 parser.add_argument('--epochs', type=int, default=250, help='num of training epochs')
 parser.add_argument('--init_channels', type=int, default=48, help='num of init channels')
 parser.add_argument('--layers', type=int, default=14, help='total number of layers')
 parser.add_argument('--auxiliary', action='store_true', default=False, help='use auxiliary tower')
 parser.add_argument('--auxiliary_weight', type=float, default=0.4, help='weight for auxiliary loss')
 parser.add_argument('--drop_path_prob', type=float, default=0, help='drop path probability')
-parser.add_argument('--save', type=str, default='EXP', help='experiment name')
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--arch', type=str, default='DARTS', help='which architecture to use')
+parser.add_argument('--genotypes_A', type=str,
+                    default="Genotype(normal=[('sep_conv_3x3', 0), ('dil_conv_3x3', 1), ('sep_conv_5x5', 0), ('sep_conv_3x3', 2), ('dil_conv_5x5', 1), ('dil_conv_5x5', 3), ('dil_conv_5x5', 4), ('dil_conv_5x5', 1)], normal_concat=range(2, 6), reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('sep_conv_5x5', 2), ('sep_conv_3x3', 1), ('avg_pool_3x3', 0), ('sep_conv_5x5', 2), ('sep_conv_3x3', 4), ('sep_conv_5x5', 2)], reduce_concat=range(2, 6))",
+                    help='which architecture_A to use')
+parser.add_argument('--genotypes_B', type=str,
+                    default="Genotype(normal=[('sep_conv_3x3', 1), ('dil_conv_3x3', 0), ('sep_conv_5x5', 0), ('dil_conv_5x5', 2), ('dil_conv_5x5', 1), ('dil_conv_3x3', 0), ('dil_conv_5x5', 3), ('dil_conv_3x3', 4)], normal_concat=range(2, 6), reduce=[('sep_conv_5x5', 1), ('avg_pool_3x3', 0), ('dil_conv_5x5', 1), ('max_pool_3x3', 0), ('skip_connect', 1), ('dil_conv_5x5', 3), ('sep_conv_5x5', 3), ('sep_conv_5x5', 4)], reduce_concat=range(2, 6))",
+                    help='which architecture_B to use')
 parser.add_argument('--grad_clip', type=float, default=5., help='gradient clipping')
 parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
 parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
@@ -42,17 +46,17 @@ parser.add_argument('--decay_period', type=int, default=1, help='epochs between 
 parser.add_argument('--parallel', action='store_true', default=False, help='data parallelism')
 args = parser.parse_args()
 
-args.save = 'eval-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
-utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+args.name = 'eval/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
+utils.create_exp_dir(args.name, scripts_to_save=glob.glob('*.py'))
 
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format=log_format, datefmt='%m/%d %I:%M:%S %p')
-fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
+fh = logging.FileHandler(os.path.join(args.name, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
-CLASSES = 10
+NUM_CLASSES = 40
 
 
 class CrossEntropyLabelSmooth(nn.Module):
@@ -77,86 +81,66 @@ def main():
         sys.exit(1)
 
     np.random.seed(args.seed)
+    random.seed(args.seed)
     torch.cuda.set_device(args.gpu)
     cudnn.benchmark = True
     torch.manual_seed(args.seed)
     cudnn.enabled = True
-    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     logging.info('gpu device = %d' % args.gpu)
     logging.info("args = %s", args)
 
-    genotype = eval("genotypes.%s" % args.arch)
-    model = Network(args.init_channels, CLASSES, args.layers, args.auxiliary, genotype)
-    if args.parallel:
-        model = nn.DataParallel(model).cuda()
-    else:
-        model = model.cuda()
+    genotype_A = eval("genotypes.%s" % args.genotypes_A)
+    genotype_B = eval("genotypes.%s" % args.genotypes_B)
+    model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A)
+    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B)
+    model_A = model_A.cuda()
+    model_B = model_B.cuda()
 
-    logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
+    logging.info("model_A param size = %fMB", utils.count_parameters_in_MB(model_A))
+    logging.info("model_B param size = %fMB", utils.count_parameters_in_MB(model_B))
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    criterion_smooth = CrossEntropyLabelSmooth(CLASSES, args.label_smooth)
+    criterion_smooth = CrossEntropyLabelSmooth(NUM_CLASSES, args.label_smooth)
     criterion_smooth = criterion_smooth.cuda()
 
-    optimizer = torch.optim.SGD(
-        model.parameters(),
+    optimizer_A = torch.optim.SGD(
+        model_A.parameters(),
         args.learning_rate,
         momentum=args.momentum,
         weight_decay=args.weight_decay
     )
-
-    # traindir = os.path.join(args.data, 'train')
-    # validdir = os.path.join(args.data, 'val')
-    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    # train_data = dset.ImageFolder(
-    #   traindir,
-    #   transforms.Compose([
-    #     transforms.RandomResizedCrop(224),
-    #     transforms.RandomHorizontalFlip(),
-    #     transforms.ColorJitter(
-    #       brightness=0.4,
-    #       contrast=0.4,
-    #       saturation=0.4,
-    #       hue=0.2),
-    #     transforms.ToTensor(),
-    #     normalize,
-    #   ]))
-    # valid_data = dset.ImageFolder(
-    #   validdir,
-    #   transforms.Compose([
-    #     transforms.Resize(256),
-    #     transforms.CenterCrop(224),
-    #     transforms.ToTensor(),
-    #     normalize,
-    #   ]))
-    #
-    # train_queue = torch.utils.data.DataLoader(
-    #   train_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=4)
-    #
-    # valid_queue = torch.utils.data.DataLoader(
-    #   valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=4)
-    train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
-    valid_data = dset.CIFAR10(root=args.data, train=False, download=True, transform=valid_transform)
-
+    optimizer_B = torch.optim.SGD(
+        model_B.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.weight_decay
+    )
+    train_data = MultiViewDataset(args.data, 'train', 224, 224)
+    valid_data = MultiViewDataset(args.data, 'test', 224, 224)
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=0)
 
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.decay_period, gamma=args.gamma)
+
+    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
+    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
 
     best_acc_top1 = 0
     for epoch in range(args.epochs):
-        scheduler.step()
-        logging.info('epoch %d lr %e', epoch, scheduler.get_lr()[0])
-        model.drop_path_prob = args.drop_path_prob * epoch / args.epochs
+        scheduler_A.step()
+        scheduler_B.step()
+        logging.info('epoch %d lr %e', epoch, scheduler_A.get_lr()[0])
+        model_A.drop_path_prob = args.drop_path_prob * epoch / args.epochs
+        model_B.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 
-        train_acc, train_obj = train(train_queue, model, criterion_smooth, optimizer)
+        train_acc, train_obj = train(train_queue, model_A, model_B, criterion_smooth, optimizer_A, optimizer_B, epoch)
         logging.info('train_acc %f', train_acc)
 
-        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model, criterion)
+        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, model_B, criterion)
+
         logging.info('valid_acc_top1 %f', valid_acc_top1)
         logging.info('valid_acc_top5 %f', valid_acc_top5)
 
@@ -167,37 +151,42 @@ def main():
 
         utils.save_checkpoint({
             'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
+            'state_dict_A': model_A.state_dict(),
+            'state_dict_B': model_B.state_dict(),
             'best_acc_top1': best_acc_top1,
-            'optimizer': optimizer.state_dict(),
-        }, is_best, args.save)
+            'optimizer_A': optimizer_A.state_dict(),
+            'optimizer_B': optimizer_B.state_dict(),
+        }, is_best, args.name)
 
 
-def train(train_queue, model, criterion, optimizer, epoch):
+def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
-    model.train()
+    model_A.train()
+    model_B.train()
 
-    for step, (input, target) in enumerate(train_queue):
-        # target = target
-        # input = input
-        input = input.cuda()
-        target = target.cuda()
-
-        optimizer.zero_grad()
-        logits, logits_aux = model(input)
+    for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
+        input_A = trn_X_A.float().cuda()
+        input_B = trn_X_B.float().cuda()
+        target = trn_y.view(-1).long().cuda()
+        n = input_A.size(0)
+        optimizer_A.zero_grad()
+        U_B = model_B(input_B)
+        logits = model_A(input_A, U_B)
         loss = criterion(logits, target)
-        if args.auxiliary:
-            loss_aux = criterion(logits_aux, target)
-            loss += args.auxiliary_weight * loss_aux
-
+        U_B_gradients = torch.autograd.grad(loss, U_B, retain_graph=True)
+        model_B_weights_gradients = torch.autograd.grad(U_B, model_B.parameters(), grad_outputs=U_B_gradients,
+                                                        retain_graph=True)
+        for w, g in zip(model_B.parameters(), model_B_weights_gradients):
+            w.grad = g.detach()
+        nn.utils.clip_grad_norm_(model_B.parameters(), args.grad_clip)
+        optimizer_B.step()
         loss.backward()
-        nn.utils.clip_grad_norm(model.parameters(), args.grad_clip)
-        optimizer.step()
+        nn.utils.clip_grad_norm_(model_A.parameters(), args.grad_clip)
+        optimizer_A.step()
 
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-        n = input.size(0)
         objs.update(loss.item(), n)
         top1.update(prec1.item(), n)
         top5.update(prec5.item(), n)
@@ -211,21 +200,22 @@ def train(train_queue, model, criterion, optimizer, epoch):
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model, criterion, epoch):
+def infer(valid_queue, model_A, model_B, criterion, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
-    model.eval()
+    model_A.eval()
+    model_B.eval()
     with torch.no_grad():
-        for step, (input, target) in enumerate(valid_queue):
-            input = input.cuda()
-            target = target.cuda()
-
-            logits, _ = model(input)
+        for step, (val_X_A, val_X_B, val_y) in enumerate(valid_queue):
+            input_A = val_X_A.float().cuda()
+            input_B = val_X_B.float().cuda()
+            target = val_y.view(-1).long().cuda()
+            n = input_A.size(0)
+            U_B = model_B(input_B)
+            logits = model_A(input_A, U_B)
             loss = criterion(logits, target)
-
             prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-            n = input.size(0)
             objs.update(loss.item(), n)
             top1.update(prec1.item(), n)
             top5.update(prec5.item(), n)

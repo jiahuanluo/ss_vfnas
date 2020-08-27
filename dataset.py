@@ -2,8 +2,10 @@
 
 import os
 import numpy as np
-import cv2
+from PIL import Image
 import torch
+from torchvision import transforms
+
 
 class MultiViewDataset:
 
@@ -13,36 +15,27 @@ class MultiViewDataset:
         self.data_dir = data_dir
         self.height = height
         self.width = width
+        self.transform = transforms.Compose([
+            transforms.Resize((height, width)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.89156885, 0.89156885, 0.89156885],
+                                 std=[0.18063523, 0.18063523, 0.18063523]),
+        ])
 
         self.classes, self.class_to_idx = self.find_class(data_dir)
         subfixes = ['_' + str(((i - 1) * 30)).zfill(3) + '_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
-        if data_type == "train":
-            for label in self.classes:
-                all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
-                all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
-                all_off_files = sorted(list(set(all_off_files)))
+        for label in self.classes:
+            all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
+            all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
+            all_off_files = sorted(list(set(all_off_files)))
 
-                for single_off_file in all_off_files:
-                    all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
-                    all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
-                    for i in range(6):
-                        sample = [all_views[i], all_views[i + 6]]
-                        self.x.append(sample)
-                        self.y.append([self.class_to_idx[label]])
-
-        else:
-            for label in self.classes:
-                all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
-                all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
-                all_off_files = sorted(list(set(all_off_files)))
-
-                for single_off_file in all_off_files:
-                    all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
-                    all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
-                    for i in range(6):
-                        sample = [all_views[i], all_views[i + 6]]
-                        self.x.append(sample)
-                        self.y.append([self.class_to_idx[label]])
+            for single_off_file in all_off_files:
+                all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
+                all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
+                for i in range(6):
+                    sample = [all_views[i], all_views[i + 6]]
+                    self.x.append(sample)
+                    self.y.append([self.class_to_idx[label]])
 
         self.x = np.array(self.x)
         self.y = np.array(self.y)
@@ -61,10 +54,9 @@ class MultiViewDataset:
         data = []
         labels = []
         for index in range(2):
-            img = cv2.imread(_views[index])
-            if self.height != 224:
-                img = cv2.resize(img, (self.height, self.width))
-            img = img.transpose((2, 0, 1))
+            img = Image.open(_views[index])
+            if self.transform is not None:
+                img = self.transform(img)
             data.append(img)
         labels.append(self.y[indexx])
 
@@ -73,8 +65,8 @@ class MultiViewDataset:
 
 def test_dataset():
     DATA_DIR = './data/modelnet_manually_aligned_png_v4/'
-    train_dataset = MultiViewDataset(DATA_DIR, 'train', 32, 32, valid=False)
-    valid_dataset = MultiViewDataset(DATA_DIR, 'train', 32, 32, valid=True)
+    train_dataset = MultiViewDataset(DATA_DIR, 'train', 32, 32)
+    valid_dataset = MultiViewDataset(DATA_DIR, 'test', 32, 32)
     n_train = len(train_dataset)
     n_valid = len(valid_dataset)
     print(n_train)
@@ -95,6 +87,7 @@ def test_dataset():
                                                pin_memory=True)
     for i, (x1, x2, y) in enumerate(train_loader):
         print(x1.shape, x2.shape, y.shape)
+
 
 if __name__ == "__main__":
     test_dataset()
