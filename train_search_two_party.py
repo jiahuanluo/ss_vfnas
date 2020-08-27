@@ -197,12 +197,12 @@ def infer(valid_queue, model_A, model_B, criterion, epoch):
             input_A = val_X_A.float().cuda()
             input_B = val_X_B.float().cuda()
             target = val_y.view(-1).long().cuda()
+            n = val_X_A.size(0)
 
             U_B = model_B(input_B)
+            loss, logits = model_A._loss(input_A, U_B, target)
 
-            logits, loss = model_A._loss(input_A, U_B, target)
             prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-            n = input.size(0)
             objs.update(loss.item(), n)
             top1.update(prec1.item(), n)
             top5.update(prec5.item(), n)
