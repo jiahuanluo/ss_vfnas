@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import glob
 import numpy as np
 import torch
@@ -12,14 +13,15 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 
-from model_search import Network
-from architect import Architect
+from model_search_two_party import Network_A, Network_B
+from architect_two_party import Architect_A, Architect_B
 from dataset import MultiViewDataset
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_v4")
-parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_v4', help='location of the data corpus')
+parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_v4',
+                    help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
-parser.add_argument('--batch_size', type=int, default=64, help='batch size')
+parser.add_argument('--batch_size', type=int, default=32, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=0.025, help='init learning rate')
 parser.add_argument('--learning_rate_min', type=float, default=0.001, help='min learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
@@ -40,6 +42,7 @@ parser.add_argument('--train_portion', type=float, default=0.5, help='portion of
 parser.add_argument('--unrolled', action='store_true', default=False, help='use one-step unrolled validation loss')
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
+parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 args = parser.parse_args()
 
 args.save = 'search/{}-{}'.format(args.save, args.name)
@@ -52,7 +55,7 @@ fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
-NUM_CLASSES = 10
+CIFAR_CLASSES = 10
 
 
 def main():
@@ -72,17 +75,17 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model = Network(args.init_channels, NUM_CLASSES, args.layers, criterion)
-    model = model.cuda()
-    logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
+    model_A = Network_A(args.init_channels, CIFAR_CLASSES, args.layers, criterion, u_dim=args.u_dim)
+    model_B = Network_B(args.init_channels, args.layers, criterion, u_dim=args.u_dim)
+    model_A = model_A.cuda()
+    model_B = model_B.cuda()
+    logging.info("model_A param size = %fMB", utils.count_parameters_in_MB(model_A))
+    logging.info("model_B param size = %fMB", utils.count_parameters_in_MB(model_B))
 
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        args.learning_rate,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay)
-
-    # train_transform, valid_transform = utils._data_transforms_cifar10(args)
+    optimizer_A = torch.optim.SGD(model_A.parameters(), args.learning_rate, momentum=args.momentum,
+                                  weight_decay=args.weight_decay)
+    optimizer_B = torch.optim.SGD(model_B.parameters(), args.learning_rate, momentum=args.momentum,
+                                  weight_decay=args.weight_decay)
     train_data = MultiViewDataset(args.data, 'train', 32, 32)
 
     num_train = len(train_data)
@@ -100,65 +103,74 @@ def main():
         sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
         pin_memory=True, num_workers=0)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, float(args.epochs), eta_min=args.learning_rate_min)
+    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer_A, float(args.epochs), eta_min=args.learning_rate_min)
+    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer_B, float(args.epochs), eta_min=args.learning_rate_min)
 
-    architect = Architect(model, args)
+    architect_A = Architect_A(model_A, args)
+    architect_B = Architect_B(model_B, args)
 
     for epoch in range(args.epochs):
-        scheduler.step()
-        lr = scheduler.get_lr()[0]
+        scheduler_A.step()
+        scheduler_B.step()
+        lr = scheduler_A.get_lr()[0]
         logging.info('epoch %d lr %e', epoch, lr)
 
-        genotype = model.genotype()
-        logging.info('genotype = %s', genotype)
+        genotype_A = model_A.genotype()
+        genotype_B = model_B.genotype()
+        logging.info('genotype_A = %s', genotype_A)
+        logging.info('genotype_B = %s', genotype_B)
 
-        print(F.softmax(model.alphas_normal, dim=-1))
-        print(F.softmax(model.alphas_reduce, dim=-1))
+        print(F.softmax(model_A.alphas_normal, dim=-1))
+        print(F.softmax(model_B.alphas_reduce, dim=-1))
+
+        print(F.softmax(model_B.alphas_normal, dim=-1))
+        print(F.softmax(model_B.alphas_reduce, dim=-1))
 
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch)
+        train_acc, train_obj = train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion,
+                                     optimizer_A, optimizer_B, lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
-        valid_acc, valid_obj = infer(valid_queue, model, criterion, epoch)
+        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch)
         logging.info('valid_acc %f', valid_acc)
 
-        utils.save(model, os.path.join(args.save, 'weights.pt'))
+        utils.save(model_A, os.path.join(args.save, 'model_A_weights.pt'))
+        utils.save(model_B, os.path.join(args.save, 'model_B_weights.pt'))
 
 
-def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch):
+def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion, optimizer_A, optimizer_B, lr,
+          epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
-    for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
-        model.train()
-        trn_X_A = trn_X_A.float()
-        trn_y = trn_y.view(-1).long()
-
-
-        n = trn_X_A.size(0)
-
-        input = trn_X_A.cuda()
-        target = trn_y.cuda()
+    for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
+        model_A.train()
+        model_B.train()
+        input_A = trn_X_A.float().cuda()
+        input_B = trn_X_B.float().cuda()
+        target = trn_y.view(-1).long().cuda()
+        n = input_A.size(0)
 
         # get a random minibatch from the search queue with replacement
-        (val_X_A, _, val_y) = next(iter(valid_queue))
-        val_X_A = val_X_A.float()
-        val_y = val_y.view(-1).long()
-        input_search = val_X_A.cuda()
-        target_search = val_y.cuda()
+        (val_X_A, val_X_B, val_y) = next(iter(valid_queue))
+        input_search_A = val_X_A.float().cuda()
+        input_search_B = val_X_B.float().cuda()
+        target_search = val_y.view(-1).long().cuda()
 
-        architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
+        U_B_val = model_B.get_u(input_search_B)
 
-        optimizer.zero_grad()
-        logits = model(input)
-        loss = criterion(logits, target)
+        U_B_gradients = architect_A.update_alpha(input_search_A, U_B_val, target_search)
 
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-        optimizer.step()
+        architect_B.update_alpha(U_B_val, U_B_gradients)
+
+        U_B_train = model_B.get_u(input_B)
+        U_B_gradients, logits, loss = architect_A.update_weights(input_A, U_B_train, target, optimizer_A,
+                                                                 args.grad_clip)
+        architect_B.update_weights(U_B_train, U_B_gradients, optimizer_B, args.grad_clip)
 
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         objs.update(loss.item(), n)
@@ -174,21 +186,21 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model, criterion, epoch):
+def infer(valid_queue, model_A, model_B, criterion, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
-    model.eval()
+    model_A.eval()
+    model_B.eval()
     with torch.no_grad():
-        for step, (val_X_A, _, val_y) in enumerate(valid_queue):
-            val_X_A = val_X_A.float()
-            val_y = val_y.view(-1).long()
-            input = val_X_A.cuda()
-            target = val_y.cuda()
+        for step, (val_X_A, val_X_B, val_y) in enumerate(valid_queue):
+            input_A = val_X_A.float().cuda()
+            input_B = val_X_B.float().cuda()
+            target = val_y.view(-1).long().cuda()
 
-            logits = model(input)
-            loss = criterion(logits, target)
+            U_B = model_B(input_B)
 
+            logits, loss = model_A._loss(input_A, U_B, target)
             prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
             n = input.size(0)
             objs.update(loss.item(), n)
