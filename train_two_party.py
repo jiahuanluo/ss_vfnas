@@ -8,7 +8,6 @@ import utils
 import logging
 import argparse
 import torch.nn as nn
-import genotypes
 import torch.utils
 import torchvision.datasets as dset
 import torch.backends.cudnn as cudnn
@@ -18,7 +17,8 @@ from torch.autograd import Variable
 from model import NetworkCIFAR as Network
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_v4")
-parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
+parser.add_argument('--data', type=str, default='../data/modelnet_manually_aligned_png_v4',
+                    help='location of the data corpus')
 parser.add_argument('--batch_size', type=int, default=96, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=0.025, help='init learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
@@ -40,7 +40,7 @@ parser.add_argument('--arch', type=str, default='DARTS', help='which architectur
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 args = parser.parse_args()
 
-args.save = 'eval-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+args.save = 'eval/{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
 utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 
 log_format = '%(asctime)s %(message)s'
@@ -67,8 +67,6 @@ def main():
     torch.cuda.manual_seed_all(args.seed)
     logging.info('gpu device = %d' % args.gpu)
     logging.info("args = %s", args)
-
-
 
     genotype = eval("genotypes.%s" % args.arch)
     model = Network(args.init_channels, CIFAR_CLASSES, args.layers, args.auxiliary, genotype)

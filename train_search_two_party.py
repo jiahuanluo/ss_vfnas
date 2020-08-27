@@ -35,7 +35,6 @@ parser.add_argument('--model_path', type=str, default='saved_models', help='path
 parser.add_argument('--cutout', action='store_true', default=False, help='use cutout')
 parser.add_argument('--cutout_length', type=int, default=16, help='cutout length')
 parser.add_argument('--drop_path_prob', type=float, default=0.3, help='drop path probability')
-parser.add_argument('--save', type=str, default='EXP', help='experiment name')
 parser.add_argument('--seed', type=int, default=2, help='random seed')
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 parser.add_argument('--train_portion', type=float, default=0.5, help='portion of training data')
@@ -45,17 +44,17 @@ parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weigh
 parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 args = parser.parse_args()
 
-args.save = 'search/{}-{}'.format(args.save, args.name)
-utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+args.name = 'search/{}-{}'.format(args.name, args.name)
+utils.create_exp_dir(args.name, scripts_to_save=glob.glob('*.py'))
 
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format=log_format, datefmt='%m/%d %I:%M:%S %p')
-fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
+fh = logging.FileHandler(os.path.join(args.name, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
-CIFAR_CLASSES = 10
+NUM_CLASSES = 10
 
 
 def main():
@@ -75,7 +74,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model_A = Network_A(args.init_channels, CIFAR_CLASSES, args.layers, criterion, u_dim=args.u_dim)
+    model_A = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion, u_dim=args.u_dim)
     model_B = Network_B(args.init_channels, args.layers, criterion, u_dim=args.u_dim)
     model_A = model_A.cuda()
     model_B = model_B.cuda()
@@ -137,8 +136,8 @@ def main():
         valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch)
         logging.info('valid_acc %f', valid_acc)
 
-        utils.save(model_A, os.path.join(args.save, 'model_A_weights.pt'))
-        utils.save(model_B, os.path.join(args.save, 'model_B_weights.pt'))
+        utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
+        utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
 
 
 def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion, optimizer_A, optimizer_B, lr,
