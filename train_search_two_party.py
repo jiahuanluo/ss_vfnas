@@ -126,11 +126,13 @@ def main():
         logging.info('genotype_A = %s', genotype_A)
         logging.info('genotype_B = %s', genotype_B)
 
-        print(F.softmax(model_A.alphas_normal, dim=-1))
-        print(F.softmax(model_B.alphas_reduce, dim=-1))
+        logging.info('Model_A alphas')
+        logging.info(F.softmax(model_A.alphas_normal, dim=-1))
+        logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
 
-        print(F.softmax(model_B.alphas_normal, dim=-1))
-        print(F.softmax(model_B.alphas_reduce, dim=-1))
+        logging.info('Model_B alphas')
+        logging.info(F.softmax(model_B.alphas_normal, dim=-1))
+        logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
 
         # training
         train_acc, train_obj = train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion,
@@ -138,7 +140,8 @@ def main():
         logging.info('train_acc %f', train_acc)
 
         # validation
-        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch)
+        cur_step = (epoch + 1) * len(train_queue)
+        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
 
         utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
@@ -150,7 +153,8 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
-    cur_step = 0
+
+    cur_step = epoch * len(train_queue)
     writer.add_scalar('train/lr', lr, cur_step)
 
     for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
