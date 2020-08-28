@@ -189,8 +189,8 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
                     epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
                     top1=top1, top5=top5))
         writer.add_scalar('train/loss', objs.avg, cur_step)
-        writer.add_scalar('train/loss', top1.avg, cur_step)
-        writer.add_scalar('train/loss', top5.avg, cur_step)
+        writer.add_scalar('train/top1', top1.avg, cur_step)
+        writer.add_scalar('train/top5', top5.avg, cur_step)
         cur_step += 1
 
     return top1.avg, objs.avg
@@ -225,8 +225,8 @@ def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
     writer.add_scalar('train/loss', objs.avg, cur_step)
-    writer.add_scalar('train/loss', top1.avg, cur_step)
-    writer.add_scalar('train/loss', top5.avg, cur_step)
+    writer.add_scalar('train/top1', top1.avg, cur_step)
+    writer.add_scalar('train/top5', top5.avg, cur_step)
     return top1.avg, objs.avg
 
 
