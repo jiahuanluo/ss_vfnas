@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 
-from model_search import Network
+from model_search_A_party import Network_A
 from architect import Architect
 from dataset import MultiViewDataset
 
@@ -73,7 +73,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model = Network(args.init_channels, NUM_CLASSES, args.layers, criterion)
+    model = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion)
     model = model.cuda()
     logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 

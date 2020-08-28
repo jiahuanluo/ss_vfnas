@@ -13,14 +13,14 @@ import genotypes
 import torch.utils
 import torch.backends.cudnn as cudnn
 
-from model_two_party import NetworkMulitview_A, NetworkMulitview_B
+from model_A_party import NetworkMulitview_A
 from dataset import MultiViewDataset
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
 parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
                     help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
-parser.add_argument('--batch_size', type=int, default=64, help='batch size')
+parser.add_argument('--batch_size', type=int, default=128, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=0.1, help='init learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
@@ -34,11 +34,8 @@ parser.add_argument('--auxiliary_weight', type=float, default=0.4, help='weight 
 parser.add_argument('--drop_path_prob', type=float, default=0, help='drop path probability')
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--genotypes_A', type=str,
-                    default="Genotype(normal=[('sep_conv_3x3', 0), ('dil_conv_3x3', 1), ('sep_conv_5x5', 0), ('sep_conv_3x3', 2), ('dil_conv_5x5', 1), ('dil_conv_5x5', 3), ('dil_conv_5x5', 4), ('dil_conv_5x5', 1)], normal_concat=range(2, 6), reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('sep_conv_5x5', 2), ('sep_conv_3x3', 1), ('avg_pool_3x3', 0), ('sep_conv_5x5', 2), ('sep_conv_3x3', 4), ('sep_conv_5x5', 2)], reduce_concat=range(2, 6))",
+                    default="Genotype(normal=[('skip_connect', 0), ('skip_connect', 1), ('skip_connect', 0), ('dil_conv_3x3', 1), ('max_pool_3x3', 0), ('dil_conv_5x5', 1), ('dil_conv_3x3', 0), ('dil_conv_5x5', 1)], normal_concat=range(2, 6), reduce=[('avg_pool_3x3', 0), ('avg_pool_3x3', 1), ('avg_pool_3x3', 0), ('skip_connect', 2), ('avg_pool_3x3', 0), ('avg_pool_3x3', 1), ('max_pool_3x3', 0), ('avg_pool_3x3', 1)], reduce_concat=range(2, 6))",
                     help='which architecture_A to use')
-parser.add_argument('--genotypes_B', type=str,
-                    default="Genotype(normal=[('sep_conv_3x3', 1), ('dil_conv_3x3', 0), ('sep_conv_5x5', 0), ('dil_conv_5x5', 2), ('dil_conv_5x5', 1), ('dil_conv_3x3', 0), ('dil_conv_5x5', 3), ('dil_conv_3x3', 4)], normal_concat=range(2, 6), reduce=[('sep_conv_5x5', 1), ('avg_pool_3x3', 0), ('dil_conv_5x5', 1), ('max_pool_3x3', 0), ('skip_connect', 1), ('dil_conv_5x5', 3), ('sep_conv_5x5', 3), ('sep_conv_5x5', 4)], reduce_concat=range(2, 6))",
-                    help='which architecture_B to use')
 parser.add_argument('--grad_clip', type=float, default=5., help='gradient clipping')
 parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
 parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
@@ -91,14 +88,10 @@ def main():
     logging.info("args = %s", args)
 
     genotype_A = eval("genotypes.%s" % args.genotypes_A)
-    genotype_B = eval("genotypes.%s" % args.genotypes_B)
     model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A)
-    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B)
     model_A = model_A.cuda()
-    model_B = model_B.cuda()
 
     logging.info("model_A param size = %fMB", utils.count_parameters_in_MB(model_A))
-    logging.info("model_B param size = %fMB", utils.count_parameters_in_MB(model_B))
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
@@ -107,12 +100,6 @@ def main():
 
     optimizer_A = torch.optim.SGD(
         model_A.parameters(),
-        args.learning_rate,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay
-    )
-    optimizer_B = torch.optim.SGD(
-        model_B.parameters(),
         args.learning_rate,
         momentum=args.momentum,
         weight_decay=args.weight_decay
@@ -126,20 +113,17 @@ def main():
         valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
     scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
-    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
 
     best_acc_top1 = 0
     for epoch in range(args.epochs):
         scheduler_A.step()
-        scheduler_B.step()
         logging.info('epoch %d lr %e', epoch, scheduler_A.get_lr()[0])
         model_A.drop_path_prob = args.drop_path_prob * epoch / args.epochs
-        model_B.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 
-        train_acc, train_obj = train(train_queue, model_A, model_B, criterion_smooth, optimizer_A, optimizer_B, epoch)
+        train_acc, train_obj = train(train_queue, model_A, criterion_smooth, optimizer_A, epoch)
         logging.info('train_acc %f', train_acc)
 
-        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, model_B, criterion)
+        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, criterion, epoch)
 
         logging.info('valid_acc_top1 %f', valid_acc_top1)
         logging.info('valid_acc_top5 %f', valid_acc_top5)
@@ -152,36 +136,25 @@ def main():
         utils.save_checkpoint({
             'epoch': epoch + 1,
             'state_dict_A': model_A.state_dict(),
-            'state_dict_B': model_B.state_dict(),
             'best_acc_top1': best_acc_top1,
             'optimizer_A': optimizer_A.state_dict(),
-            'optimizer_B': optimizer_B.state_dict(),
         }, is_best, args.name)
+    logging.info('best_acc_top1 %f', best_acc_top1)
 
 
-def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, epoch):
+def train(train_queue, model_A, criterion, optimizer_A, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
     model_A.train()
-    model_B.train()
 
-    for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
+    for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
         input_A = trn_X_A.float().cuda()
-        input_B = trn_X_B.float().cuda()
         target = trn_y.view(-1).long().cuda()
         n = input_A.size(0)
         optimizer_A.zero_grad()
-        U_B = model_B(input_B)
-        logits = model_A(input_A, U_B)
+        logits = model_A(input_A)
         loss = criterion(logits, target)
-        U_B_gradients = torch.autograd.grad(loss, U_B, retain_graph=True)
-        model_B_weights_gradients = torch.autograd.grad(U_B, model_B.parameters(), grad_outputs=U_B_gradients,
-                                                        retain_graph=True)
-        for w, g in zip(model_B.parameters(), model_B_weights_gradients):
-            w.grad = g.detach()
-        nn.utils.clip_grad_norm_(model_B.parameters(), args.grad_clip)
-        optimizer_B.step()
         loss.backward()
         nn.utils.clip_grad_norm_(model_A.parameters(), args.grad_clip)
         optimizer_A.step()
@@ -200,20 +173,17 @@ def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, ep
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_A, model_B, criterion, epoch):
+def infer(valid_queue, model_A, criterion, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
     model_A.eval()
-    model_B.eval()
     with torch.no_grad():
-        for step, (val_X_A, val_X_B, val_y) in enumerate(valid_queue):
+        for step, (val_X_A, _, val_y) in enumerate(valid_queue):
             input_A = val_X_A.float().cuda()
-            input_B = val_X_B.float().cuda()
             target = val_y.view(-1).long().cuda()
             n = input_A.size(0)
-            U_B = model_B(input_B)
-            logits = model_A(input_A, U_B)
+            logits = model_A(input_A)
             loss = criterion(logits, target)
             prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
             objs.update(loss.item(), n)

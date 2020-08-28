@@ -98,60 +98,7 @@ class NetworkMulitview_A(nn.Module):
 
         self.global_pooling = nn.AvgPool2d(7)
         self.u_linear = nn.Linear(C_prev, u_dim)
-        self.classifier = nn.Linear(u_dim * 2, num_classes)
-
-    def forward(self, input, U_B):
-        s0 = self.stem0(input)
-        s1 = self.stem1(s0)
-        for i, cell in enumerate(self.cells):
-            s0, s1 = s1, cell(s0, s1, self.drop_path_prob)
-
-        out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1)  # flatten
-        out = self.u_linear(out)
-        concat_out = torch.cat((out, U_B), dim=1)
-        logits = self.classifier(concat_out)
-        return logits
-
-
-class NetworkMulitview_B(nn.Module):
-
-    def __init__(self, C, layers, auxiliary, genotype, u_dim=64):
-        super(NetworkMulitview_B, self).__init__()
-        self._layers = layers
-        self._auxiliary = auxiliary
-
-        self.stem0 = nn.Sequential(
-            nn.Conv2d(3, C // 2, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(C // 2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(C // 2, C, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(C),
-        )
-
-        self.stem1 = nn.Sequential(
-            nn.ReLU(inplace=True),
-            nn.Conv2d(C, C, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(C),
-        )
-
-        C_prev_prev, C_prev, C_curr = C, C, C
-
-        self.cells = nn.ModuleList()
-        reduction_prev = True
-        for i in range(layers):
-            if i in [layers // 3, 2 * layers // 3]:
-                C_curr *= 2
-                reduction = True
-            else:
-                reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
-            reduction_prev = reduction
-            self.cells += [cell]
-            C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
-
-        self.global_pooling = nn.AvgPool2d(7)
-        self.u_linear = nn.Linear(C_prev, u_dim)
+        self.classifier = nn.Linear(u_dim, num_classes)
 
     def forward(self, input):
         s0 = self.stem0(input)
@@ -161,5 +108,6 @@ class NetworkMulitview_B(nn.Module):
 
         out = self.global_pooling(s1)
         out = out.view(out.size(0), -1)  # flatten
-        u = self.u_linear(out)
-        return u
+        out = self.u_linear(out)
+        logits = self.classifier(out)
+        return logits
