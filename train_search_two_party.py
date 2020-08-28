@@ -115,6 +115,7 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_B = Architect_B(model_B, args)
 
+    best_top1 = 0.
     for epoch in range(args.epochs):
         scheduler_A.step()
         scheduler_B.step()
@@ -143,6 +144,13 @@ def main():
         cur_step = (epoch + 1) * len(train_queue)
         valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
+        if best_top1 < valid_acc:
+            best_top1 = valid_acc
+            best_genotype_A = genotype_A
+            best_genotype_B = genotype_B
+        logging.info("Final best Prec@1 = {:.4%}".format(best_top1))
+        logging.info("Best Genotype_A = {}".format(best_genotype_A))
+        logging.info("Best Genotype_B = {}".format(best_genotype_B))
 
         utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
         utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
@@ -228,9 +236,9 @@ def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
-    writer.add_scalar('train/loss', objs.avg, cur_step)
-    writer.add_scalar('train/top1', top1.avg, cur_step)
-    writer.add_scalar('train/top5', top5.avg, cur_step)
+    writer.add_scalar('valid/loss', objs.avg, cur_step)
+    writer.add_scalar('valid/top1', top1.avg, cur_step)
+    writer.add_scalar('valid/top5', top5.avg, cur_step)
     return top1.avg, objs.avg
 
 

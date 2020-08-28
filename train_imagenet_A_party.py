@@ -11,6 +11,7 @@ import argparse
 import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
+from tensorboardX import SummaryWriter
 
 from models.model_A_party import NetworkMulitview_A
 from dataset import MultiViewDataset
@@ -51,6 +52,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.name, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+
+# tensorboard
+writer = SummaryWriter(log_dir=os.path.join(args.name, 'tb'))
+writer.add_text('expername', args.name, 0)
 
 NUM_CLASSES = 40
 
@@ -116,13 +121,18 @@ def main():
     best_acc_top1 = 0
     for epoch in range(args.epochs):
         scheduler_A.step()
-        logging.info('epoch %d lr %e', epoch, scheduler_A.get_lr()[0])
+        lr = scheduler_A.get_lr()[0]
+        logging.info('epoch %d lr %e', epoch, lr)
         model_A.drop_path_prob = args.drop_path_prob * epoch / args.epochs
+
+        cur_step = epoch * len(train_queue)
+        writer.add_scalar('train/lr', lr, cur_step)
 
         train_acc, train_obj = train(train_queue, model_A, criterion_smooth, optimizer_A, epoch)
         logging.info('train_acc %f', train_acc)
 
-        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, criterion, epoch)
+        cur_step = (epoch + 1) * len(train_queue)
+        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, criterion, epoch, cur_step)
 
         logging.info('valid_acc_top1 %f', valid_acc_top1)
         logging.info('valid_acc_top5 %f', valid_acc_top5)
@@ -145,6 +155,8 @@ def train(train_queue, model_A, criterion, optimizer_A, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
+
+    cur_step = epoch * len(train_queue)
     model_A.train()
 
     for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
@@ -169,10 +181,14 @@ def train(train_queue, model_A, criterion, optimizer_A, epoch):
                 "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                     epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
                     top1=top1, top5=top5))
+        writer.add_scalar('train/loss', objs.avg, cur_step)
+        writer.add_scalar('train/top1', top1.avg, cur_step)
+        writer.add_scalar('train/top5', top5.avg, cur_step)
+        cur_step +=1
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_A, criterion, epoch):
+def infer(valid_queue, model_A, criterion, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
@@ -195,7 +211,9 @@ def infer(valid_queue, model_A, criterion, epoch):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
-
+    writer.add_scalar('valid/loss', objs.avg, cur_step)
+    writer.add_scalar('valid/top1', top1.avg, cur_step)
+    writer.add_scalar('valid/top5', top5.avg, cur_step)
     return top1.avg, top5.avg, objs.avg
 
 

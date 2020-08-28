@@ -12,6 +12,7 @@ import torch.utils
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
+from tensorboardX import SummaryWriter
 
 from models.model_search_A_party import Network_A
 from architects.architect import Architect
@@ -52,6 +53,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.name, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+
+# tensorboard
+writer = SummaryWriter(log_dir=os.path.join(args.name, 'tb'))
+writer.add_text('expername', args.name, 0)
 
 NUM_CLASSES = 40
 
@@ -104,7 +109,7 @@ def main():
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 
     architect = Architect(model, args)
-
+    best_top1 = 0.
     for epoch in range(args.epochs):
         scheduler.step()
         lr = scheduler.get_lr()[0]
@@ -113,17 +118,22 @@ def main():
         genotype = model.genotype()
         logging.info('genotype = %s', genotype)
 
-        print(F.softmax(model.alphas_normal, dim=-1))
-        print(F.softmax(model.alphas_reduce, dim=-1))
+        logging.info(F.softmax(model.alphas_normal, dim=-1))
+        logging.info(F.softmax(model.alphas_reduce, dim=-1))
 
         # training
         train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
-        valid_acc, valid_obj = infer(valid_queue, model, criterion, epoch)
+        cur_step = (epoch + 1) * len(train_queue)
+        valid_acc, valid_obj = infer(valid_queue, model, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
-
+        if best_top1 < valid_acc:
+            best_top1 = valid_acc
+            best_genotype = genotype
+        logging.info("Final best Prec@1 = {:.4%}".format(best_top1))
+        logging.info("Best Genotype = {}".format(best_genotype))
         utils.save(model, os.path.join(args.name, 'weights.pt'))
 
 
@@ -132,22 +142,19 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
+    cur_step = epoch * len(train_queue)
+    writer.add_scalar('train/lr', lr, cur_step)
+
     for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
         model.train()
-        trn_X_A = trn_X_A.float()
-        trn_y = trn_y.view(-1).long()
-
-        n = trn_X_A.size(0)
-
-        input = trn_X_A.cuda()
-        target = trn_y.cuda()
+        input = trn_X_A.float().cuda()
+        target = trn_y.view(-1).long().cuda()
+        n = input.size(0)
 
         # get a random minibatch from the search queue with replacement
         (val_X_A, _, val_y) = next(iter(valid_queue))
-        val_X_A = val_X_A.float()
-        val_y = val_y.view(-1).long()
-        input_search = val_X_A.cuda()
-        target_search = val_y.cuda()
+        input_search = val_X_A.float().cuda()
+        target_search = val_y.view(-1).long().cuda()
 
         architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
 
@@ -170,10 +177,14 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
                 "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                     epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
                     top1=top1, top5=top5))
+        writer.add_scalar('train/loss', objs.avg, cur_step)
+        writer.add_scalar('train/top1', top1.avg, cur_step)
+        writer.add_scalar('train/top5', top5.avg, cur_step)
+        cur_step += 1
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model, criterion, epoch):
+def infer(valid_queue, model, criterion, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()

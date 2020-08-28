@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import time
 import numpy as np
 import torch
 import utils
@@ -11,13 +12,14 @@ import torch.utils
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
+from tensorboardX import SummaryWriter
 
 from models.model_search_two_party import Network_A, Network_B
 from architects.architect_two_party_preg import Architect_A, Architect_B
 from dataset import MultiViewDataset
 
-parser = argparse.ArgumentParser("modelnet_manually_aligned_png_10class")
-parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_10class',
+parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
+parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
                     help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
 parser.add_argument('--batch_size', type=int, default=12, help='batch size')
@@ -45,7 +47,7 @@ parser.add_argument('--n_local_update', type=int, default=5, help='n_local_updat
 
 args = parser.parse_args()
 
-args.name = 'search/{}-{}'.format(args.name, args.name)
+args.name = 'search/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
 utils.create_exp_dir(args.name, scripts_to_save=glob.glob('*.py'))
 
 log_format = '%(asctime)s %(message)s'
@@ -55,7 +57,11 @@ fh = logging.FileHandler(os.path.join(args.name, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
-NUM_CLASSES = 10
+# tensorboard
+writer = SummaryWriter(log_dir=os.path.join(args.name, 'tb'))
+writer.add_text('expername', args.name, 0)
+
+NUM_CLASSES = 40
 
 
 def main():
@@ -111,6 +117,7 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_B = Architect_B(model_B, args)
 
+    best_top1 = 0.
     for epoch in range(args.epochs):
         scheduler_A.step()
         scheduler_B.step()
@@ -122,20 +129,29 @@ def main():
         logging.info('genotype_A = %s', genotype_A)
         logging.info('genotype_B = %s', genotype_B)
 
-        print(F.softmax(model_A.alphas_normal, dim=-1))
-        print(F.softmax(model_B.alphas_reduce, dim=-1))
+        logging.info('Model_A alphas')
+        logging.info(F.softmax(model_A.alphas_normal, dim=-1))
+        logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
 
-        print(F.softmax(model_B.alphas_normal, dim=-1))
-        print(F.softmax(model_B.alphas_reduce, dim=-1))
-
+        logging.info('Model_B alphas')
+        logging.info(F.softmax(model_B.alphas_normal, dim=-1))
+        logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
         # training
         train_acc, train_obj = train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion,
                                      optimizer_A, optimizer_B, lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
-        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch)
+        cur_step = (epoch + 1) * len(train_queue)
+        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
+        if best_top1 < valid_acc:
+            best_top1 = valid_acc
+            best_genotype_A = genotype_A
+            best_genotype_B = genotype_B
+        logging.info("Final best Prec@1 = {:.4%}".format(best_top1))
+        logging.info("Best Genotype_A = {}".format(best_genotype_A))
+        logging.info("Best Genotype_B = {}".format(best_genotype_B))
 
         utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
         utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
@@ -147,6 +163,7 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
+    cur_step = epoch * len(train_queue)
     for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
         model_A.train()
         model_B.train()
@@ -183,10 +200,14 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
                 "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                     epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
                     top1=top1, top5=top5))
+        writer.add_scalar('train/loss', objs.avg, cur_step)
+        writer.add_scalar('train/top1', top1.avg, cur_step)
+        writer.add_scalar('train/top5', top5.avg, cur_step)
+        cur_step += 1
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_A, model_B, criterion, epoch):
+def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
@@ -213,6 +234,9 @@ def infer(valid_queue, model_A, model_B, criterion, epoch):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
+    writer.add_scalar('valid/loss', objs.avg, cur_step)
+    writer.add_scalar('valid/top1', top1.avg, cur_step)
+    writer.add_scalar('valid/top5', top5.avg, cur_step)
     return top1.avg, objs.avg
 
 
