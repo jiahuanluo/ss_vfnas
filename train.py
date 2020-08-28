@@ -8,14 +8,13 @@ import utils
 import logging
 import argparse
 import torch.nn as nn
-import genotypes
 import torch.utils
 import torchvision.datasets as dset
 import torch.backends.cudnn as cudnn
 import random
 
 from torch.autograd import Variable
-from model import NetworkCIFAR as Network
+from models.model import NetworkCIFAR as Network
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_v4")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')

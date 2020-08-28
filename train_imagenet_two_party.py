@@ -9,11 +9,10 @@ import random
 import logging
 import argparse
 import torch.nn as nn
-import genotypes
 import torch.utils
 import torch.backends.cudnn as cudnn
 
-from model_two_party import NetworkMulitview_A, NetworkMulitview_B
+from models.model_two_party import NetworkMulitview_A, NetworkMulitview_B
 from dataset import MultiViewDataset
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")

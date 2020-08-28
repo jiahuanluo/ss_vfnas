@@ -9,11 +9,10 @@ import random
 import logging
 import argparse
 import torch.nn as nn
-import genotypes
 import torch.utils
 import torch.backends.cudnn as cudnn
 
-from resnet_two_party import Resnet_A, Resnet_B
+from models.resnet_two_party import Resnet_A, Resnet_B
 from dataset import MultiViewDataset
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")

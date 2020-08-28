@@ -13,8 +13,8 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 
-from model_search_A_party import Network_A
-from architect import Architect
+from models.model_search_A_party import Network_A
+from architects.architect import Architect
 from dataset import MultiViewDataset
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")

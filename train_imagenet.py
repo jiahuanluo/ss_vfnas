@@ -5,18 +5,14 @@ import time
 import torch
 import utils
 import glob
-import random
 import logging
 import argparse
 import torch.nn as nn
-import genotypes
 import torch.utils
 import torchvision.datasets as dset
-import torchvision.transforms as transforms
 import torch.backends.cudnn as cudnn
 
-from torch.autograd import Variable
-from model import NetworkImageNet as Network
+from models.model import NetworkImageNet as Network
 
 parser = argparse.ArgumentParser("imagenet")
 parser.add_argument('--data', type=str, default='../data/cifar10/', help='location of the data corpus')
