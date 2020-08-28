@@ -12,6 +12,7 @@ import torch.utils
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
+from tensorboardX import SummaryWriter
 
 from models.model_search_two_party import Network_A, Network_B
 from architects.architect_two_party import Architect_A, Architect_B
@@ -53,6 +54,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.name, 'log.txt'), mode='w')
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+
+# tensorboard
+writer = SummaryWriter(log_dir=os.path.join(args.name, 'tb'))
+writer.add_text('expername', args.name, 0)
 
 NUM_CLASSES = 40
 
@@ -145,6 +150,8 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
+    cur_step = 0
+    writer.add_scalar('train/lr', lr, cur_step)
 
     for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
         model_A.train()
@@ -175,20 +182,25 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
         objs.update(loss.item(), n)
         top1.update(prec1.item(), n)
         top5.update(prec5.item(), n)
-
         if step % args.report_freq == 0:
             logging.info(
                 "Train: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
                 "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                     epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
                     top1=top1, top5=top5))
+        writer.add_scalar('train/loss', objs.avg, cur_step)
+        writer.add_scalar('train/loss', top1.avg, cur_step)
+        writer.add_scalar('train/loss', top5.avg, cur_step)
+        cur_step += 1
+
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_A, model_B, criterion, epoch):
+def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
+
     model_A.eval()
     model_B.eval()
     with torch.no_grad():
@@ -212,6 +224,9 @@ def infer(valid_queue, model_A, model_B, criterion, epoch):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
+    writer.add_scalar('train/loss', objs.avg, cur_step)
+    writer.add_scalar('train/loss', top1.avg, cur_step)
+    writer.add_scalar('train/loss', top5.avg, cur_step)
     return top1.avg, objs.avg
 
 
