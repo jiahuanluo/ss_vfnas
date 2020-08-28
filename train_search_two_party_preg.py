@@ -149,12 +149,11 @@ def main():
             best_top1 = valid_acc
             best_genotype_A = genotype_A
             best_genotype_B = genotype_B
-        logging.info("Final best Prec@1 = {:.4%}".format(best_top1))
-        logging.info("Best Genotype_A = {}".format(best_genotype_A))
-        logging.info("Best Genotype_B = {}".format(best_genotype_B))
-
-        utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
-        utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
+            utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
+            utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
+    logging.info("Final best Prec@1 = %f", best_top1)
+    logging.info("Best Genotype_A = {}".format(best_genotype_A))
+    logging.info("Best Genotype_B = {}".format(best_genotype_B))
 
 
 def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion, optimizer_A, optimizer_B, lr,

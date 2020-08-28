@@ -132,9 +132,9 @@ def main():
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype = genotype
-        logging.info("Final best Prec@1 = {:.4%}".format(best_top1))
-        logging.info("Best Genotype = {}".format(best_genotype))
-        utils.save(model, os.path.join(args.name, 'weights.pt'))
+            utils.save(model, os.path.join(args.name, 'weights.pt'))
+    logging.info("Final best Prec@1 = %f", best_top1)
+    logging.info("Best Genotype = {}".format(best_genotype))
 
 
 def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch):
