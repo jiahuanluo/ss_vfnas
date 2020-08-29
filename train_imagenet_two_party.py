@@ -7,6 +7,7 @@ import utils
 import glob
 import random
 import logging
+import genotypes
 import argparse
 import torch.nn as nn
 import torch.utils
@@ -144,7 +145,7 @@ def main():
         logging.info('train_acc %f', train_acc)
 
         cur_step = (epoch + 1) * len(train_queue)
-        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, model_B, criterion, cur_step)
+        valid_acc_top1, valid_acc_top5, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
 
         logging.info('valid_acc_top1 %f', valid_acc_top1)
         logging.info('valid_acc_top5 %f', valid_acc_top5)

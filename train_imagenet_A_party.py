@@ -7,6 +7,7 @@ import utils
 import glob
 import random
 import logging
+import genotypes
 import argparse
 import torch.nn as nn
 import torch.utils
