@@ -220,8 +220,6 @@ def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, ep
         writer.add_scalar('train/top1', top1.avg, cur_step)
         writer.add_scalar('train/top5', top5.avg, cur_step)
         cur_step += 1
-        if step == 10:
-            break
     return top1.avg, objs.avg
 
 
@@ -254,8 +252,6 @@ def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
-            if step == 10:
-                break
     writer.add_scalar('valid/loss', objs.avg, cur_step)
     writer.add_scalar('valid/top1', top1.avg, cur_step)
     writer.add_scalar('valid/top5', top5.avg, cur_step)
