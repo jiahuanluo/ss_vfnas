@@ -163,6 +163,8 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
     top5 = utils.AvgrageMeter()
 
     cur_step = epoch * len(train_queue)
+    writer.add_scalar('train/lr', lr, cur_step)
+
     for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
         model_A.train()
         model_B.train()

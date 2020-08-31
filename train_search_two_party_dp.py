@@ -128,6 +128,16 @@ def main():
         lr = scheduler_A.get_lr()[0]
         logging.info('epoch %d lr %e', epoch, lr)
 
+        # training
+        train_acc, train_obj = train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion,
+                                     optimizer_A, optimizer_B, lr, epoch)
+        logging.info('train_acc %f', train_acc)
+
+        # validation
+        cur_step = (epoch) * len(train_queue)
+        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
+        logging.info('valid_acc %f', valid_acc)
+
         genotype_A = model_A.genotype()
         genotype_B = model_B.genotype()
         logging.info('genotype_A = %s', genotype_A)
@@ -141,15 +151,6 @@ def main():
         logging.info(F.softmax(model_B.alphas_normal, dim=-1))
         logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
 
-        # training
-        train_acc, train_obj = train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, criterion,
-                                     optimizer_A, optimizer_B, lr, epoch)
-        logging.info('train_acc %f', train_acc)
-
-        # validation
-        cur_step = (epoch) * len(train_queue)
-        valid_acc, valid_obj = infer(valid_queue, model_A, model_B, criterion, epoch, cur_step)
-        logging.info('valid_acc %f', valid_acc)
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype_A = genotype_A
