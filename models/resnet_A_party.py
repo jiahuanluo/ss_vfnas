@@ -1,6 +1,7 @@
 import torch.nn as nn
 from torchvision import models
 
+
 class Resnet_A(nn.Module):
 
     def __init__(self, num_classes, layers, u_dim=64):
@@ -11,6 +12,8 @@ class Resnet_A(nn.Module):
             self.net = models.resnet50(pretrained=False, num_classes=u_dim)
         elif layers == 101:
             self.net = models.resnet101(pretrained=False, num_classes=u_dim)
+        elif layers == 19:
+            self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
         else:
             raise ValueError("Wrong number of layers for resnet")
         self.classifier = nn.Linear(u_dim, num_classes)

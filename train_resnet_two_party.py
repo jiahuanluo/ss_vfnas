@@ -38,6 +38,8 @@ parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoot
 parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
 parser.add_argument('--decay_period', type=int, default=1, help='epochs between two learning rate decays')
 parser.add_argument('--parallel', action='store_true', default=False, help='data parallelism')
+parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
+
 args = parser.parse_args()
 
 args.name = 'eval/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
@@ -88,8 +90,8 @@ def main():
     logging.info('gpu device = %d' % args.gpu)
     logging.info("args = %s", args)
 
-    model_A = Resnet_A(NUM_CLASSES, args.layers)
-    model_B = Resnet_B(args.layers)
+    model_A = Resnet_A(NUM_CLASSES, args.layers, u_dim=args.u_dim)
+    model_B = Resnet_B(args.layers, u_dim=args.u_dim)
     model_A = model_A.cuda()
     model_B = model_B.cuda()
 
@@ -120,9 +122,12 @@ def main():
 
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
-
-    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
-    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    if args.learning_rate == 0.025:
+        scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
+        scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    else:
+        scheduler_A = torch.optim.lr_scheduler.StepLR(optimizer_A, args.decay_period, gamma=args.gamma)
+        scheduler_B = torch.optim.lr_scheduler.StepLR(optimizer_B, args.decay_period, gamma=args.gamma)
 
     best_acc_top1 = 0
     for epoch in range(args.epochs):
@@ -130,6 +135,10 @@ def main():
         scheduler_B.step()
         lr = scheduler_A.get_lr()[0]
         logging.info('epoch %d lr %e', epoch, lr)
+
+        cur_step = epoch * len(train_queue)
+        writer.add_scalar('train/lr', lr, cur_step)
+
         model_A.drop_path_prob = args.drop_path_prob * epoch / args.epochs
         model_B.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 
@@ -203,7 +212,7 @@ def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, ep
         writer.add_scalar('train/loss', objs.avg, cur_step)
         writer.add_scalar('train/top1', top1.avg, cur_step)
         writer.add_scalar('train/top5', top5.avg, cur_step)
-        cur_step +=1
+        cur_step += 1
 
     return top1.avg, objs.avg
 

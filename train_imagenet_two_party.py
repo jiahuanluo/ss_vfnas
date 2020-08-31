@@ -35,16 +35,17 @@ parser.add_argument('--auxiliary_weight', type=float, default=0.4, help='weight 
 parser.add_argument('--drop_path_prob', type=float, default=0, help='drop path probability')
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--genotypes_A', type=str,
-                    default="Genotype(normal=[('sep_conv_3x3', 0), ('dil_conv_3x3', 1), ('sep_conv_5x5', 0), ('sep_conv_3x3', 2), ('dil_conv_5x5', 1), ('dil_conv_5x5', 3), ('dil_conv_5x5', 4), ('dil_conv_5x5', 1)], normal_concat=range(2, 6), reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('sep_conv_5x5', 2), ('sep_conv_3x3', 1), ('avg_pool_3x3', 0), ('sep_conv_5x5', 2), ('sep_conv_3x3', 4), ('sep_conv_5x5', 2)], reduce_concat=range(2, 6))",
+                    default="Genotype(normal=[('sep_conv_3x3', 1), ('skip_connect', 0), ('skip_connect', 0), ('skip_connect', 1), ('skip_connect', 0), ('skip_connect', 1), ('skip_connect', 0), ('skip_connect', 1)], normal_concat=range(2, 6), reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('max_pool_3x3', 0), ('skip_connect', 2), ('max_pool_3x3', 0), ('skip_connect', 3), ('max_pool_3x3', 0), ('skip_connect', 2)], reduce_concat=range(2, 6))",
                     help='which architecture_A to use')
 parser.add_argument('--genotypes_B', type=str,
-                    default="Genotype(normal=[('sep_conv_3x3', 1), ('dil_conv_3x3', 0), ('sep_conv_5x5', 0), ('dil_conv_5x5', 2), ('dil_conv_5x5', 1), ('dil_conv_3x3', 0), ('dil_conv_5x5', 3), ('dil_conv_3x3', 4)], normal_concat=range(2, 6), reduce=[('sep_conv_5x5', 1), ('avg_pool_3x3', 0), ('dil_conv_5x5', 1), ('max_pool_3x3', 0), ('skip_connect', 1), ('dil_conv_5x5', 3), ('sep_conv_5x5', 3), ('sep_conv_5x5', 4)], reduce_concat=range(2, 6))",
+                    default="Genotype(normal=[('sep_conv_3x3', 0), ('sep_conv_3x3', 1), ('skip_connect', 0), ('sep_conv_3x3', 1), ('skip_connect', 0), ('sep_conv_3x3', 1), ('skip_connect', 0), ('skip_connect', 1)], normal_concat=range(2, 6), reduce=[('avg_pool_3x3', 0), ('avg_pool_3x3', 1), ('avg_pool_3x3', 0), ('avg_pool_3x3', 1), ('avg_pool_3x3', 0), ('skip_connect', 3), ('avg_pool_3x3', 0), ('skip_connect', 4)], reduce_concat=range(2, 6))",
                     help='which architecture_B to use')
 parser.add_argument('--grad_clip', type=float, default=5., help='gradient clipping')
 parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
 parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
 parser.add_argument('--decay_period', type=int, default=1, help='epochs between two learning rate decays')
 parser.add_argument('--parallel', action='store_true', default=False, help='data parallelism')
+parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 args = parser.parse_args()
 
 args.name = 'eval/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
@@ -97,8 +98,9 @@ def main():
 
     genotype_A = eval("genotypes.%s" % args.genotypes_A)
     genotype_B = eval("genotypes.%s" % args.genotypes_B)
-    model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A)
-    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B)
+    model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A,
+                                 u_dim=args.u_dim)
+    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B, u_dim=args.u_dim)
     model_A = model_A.cuda()
     model_B = model_B.cuda()
 
@@ -130,14 +132,22 @@ def main():
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
-    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
-    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    if args.learning_rate == 0.025:
+        scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
+        scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    else:
+        scheduler_A = torch.optim.lr_scheduler.StepLR(optimizer_A, args.decay_period, gamma=args.gamma)
+        scheduler_B = torch.optim.lr_scheduler.StepLR(optimizer_B, args.decay_period, gamma=args.gamma)
 
     best_acc_top1 = 0
     for epoch in range(args.epochs):
         scheduler_A.step()
         scheduler_B.step()
-        logging.info('epoch %d lr %e', epoch, scheduler_A.get_lr()[0])
+        lr = scheduler_A.get_lr()[0]
+        logging.info('epoch %d lr %e', epoch, lr)
+
+        cur_step = epoch * len(train_queue)
+        writer.add_scalar('train/lr', lr, cur_step)
         model_A.drop_path_prob = args.drop_path_prob * epoch / args.epochs
         model_B.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 

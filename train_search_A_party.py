@@ -42,6 +42,8 @@ parser.add_argument('--train_portion', type=float, default=0.5, help='portion of
 parser.add_argument('--unrolled', action='store_true', default=False, help='use one-step unrolled validation loss')
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
+parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
+
 args = parser.parse_args()
 
 args.name = 'search/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
@@ -78,7 +80,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion)
+    model = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion, u_dim=args.u_dim)
     model = model.cuda()
     logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 
@@ -211,6 +213,9 @@ def infer(valid_queue, model, criterion, epoch, cur_step):
                     "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
                         top1=top1, top5=top5))
+        writer.add_scalar('valid/loss', objs.avg, cur_step)
+        writer.add_scalar('valid/top1', top1.avg, cur_step)
+        writer.add_scalar('valid/top5', top5.avg, cur_step)
     return top1.avg, objs.avg
 
 
