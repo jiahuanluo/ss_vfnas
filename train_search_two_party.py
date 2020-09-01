@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 
 from models.model_search_two_party import Network_A, Network_B
 from architects.architect_two_party import Architect_A, Architect_B
-from dataset import MultiViewDataset
+from dataset import MultiViewDataset, MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
 parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
@@ -90,7 +90,8 @@ def main():
                                   weight_decay=args.weight_decay)
     optimizer_B = torch.optim.SGD(model_B.parameters(), args.learning_rate, momentum=args.momentum,
                                   weight_decay=args.weight_decay)
-    train_data = MultiViewDataset(args.data, 'train', 32, 32)
+    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
+    train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=2)
 
     num_train = len(train_data)
     indices = list(range(num_train))
@@ -165,18 +166,18 @@ def train(train_queue, valid_queue, model_A, model_B, architect_A, architect_B, 
     cur_step = epoch * len(train_queue)
     writer.add_scalar('train/lr', lr, cur_step)
 
-    for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
+    for step, (trn_X, trn_y) in enumerate(train_queue):
         model_A.train()
         model_B.train()
-        input_A = trn_X_A.float().cuda()
-        input_B = trn_X_B.float().cuda()
+        input_A = trn_X[0].float().cuda()
+        input_B = trn_X[1].float().cuda()
         target = trn_y.view(-1).long().cuda()
         n = input_A.size(0)
 
         # get a random minibatch from the search queue with replacement
-        (val_X_A, val_X_B, val_y) = next(iter(valid_queue))
-        input_search_A = val_X_A.float().cuda()
-        input_search_B = val_X_B.float().cuda()
+        (val_X, val_y) = next(iter(valid_queue))
+        input_search_A = val_X[0].float().cuda()
+        input_search_B = val_X[1].float().cuda()
         target_search = val_y.view(-1).long().cuda()
 
         U_B_val = model_B.get_u(input_search_B)
@@ -216,11 +217,11 @@ def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
     model_A.eval()
     model_B.eval()
     with torch.no_grad():
-        for step, (val_X_A, val_X_B, val_y) in enumerate(valid_queue):
-            input_A = val_X_A.float().cuda()
-            input_B = val_X_B.float().cuda()
+        for step, (val_X, val_y) in enumerate(valid_queue):
+            input_A = val_X[0].float().cuda()
+            input_B = val_X[1].float().cuda()
             target = val_y.view(-1).long().cuda()
-            n = val_X_A.size(0)
+            n = input_A.size(0)
 
             U_B = model_B(input_B)
             loss, logits = model_A._loss(input_A, U_B, target)

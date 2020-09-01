@@ -15,7 +15,7 @@ import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
 
 from models.model_A_party import NetworkMulitview_A
-from dataset import MultiViewDataset
+from dataset import MultiViewDataset, MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
 parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
@@ -111,8 +111,11 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay
     )
-    train_data = MultiViewDataset(args.data, 'train', 224, 224)
-    valid_data = MultiViewDataset(args.data, 'test', 224, 224)
+    # train_data = MultiViewDataset(args.data, 'train', 224, 224)
+    # valid_data = MultiViewDataset(args.data, 'test', 224, 224)
+
+    train_data = MultiViewDataset6Party(args.data, 'train', 224, 224, k=1)
+    valid_data = MultiViewDataset6Party(args.data, 'test', 224, 224, k=1)
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=0)
 
@@ -165,8 +168,8 @@ def train(train_queue, model_A, criterion, optimizer_A, epoch):
     cur_step = epoch * len(train_queue)
     model_A.train()
 
-    for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
-        input_A = trn_X_A.float().cuda()
+    for step, (trn_X, trn_y) in enumerate(train_queue):
+        input_A = trn_X[0].float().cuda()
         target = trn_y.view(-1).long().cuda()
         n = input_A.size(0)
         optimizer_A.zero_grad()
@@ -200,8 +203,8 @@ def infer(valid_queue, model_A, criterion, epoch, cur_step):
     top5 = utils.AvgrageMeter()
     model_A.eval()
     with torch.no_grad():
-        for step, (val_X_A, _, val_y) in enumerate(valid_queue):
-            input_A = val_X_A.float().cuda()
+        for step, (val_X, val_y) in enumerate(valid_queue):
+            input_A = val_X[0].float().cuda()
             target = val_y.view(-1).long().cuda()
             n = input_A.size(0)
             logits = model_A(input_A)

@@ -14,7 +14,7 @@ import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
 
 from models.resnet_two_party import Resnet_A, Resnet_B
-from dataset import MultiViewDataset
+from dataset import MultiViewDataset, MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
 parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
@@ -115,8 +115,10 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay
     )
-    train_data = MultiViewDataset(args.data, 'train', 224, 224)
-    valid_data = MultiViewDataset(args.data, 'test', 224, 224)
+    # train_data = MultiViewDataset(args.data, 'train', 224, 224)
+    # valid_data = MultiViewDataset(args.data, 'test', 224, 224)
+    train_data = MultiViewDataset6Party(args.data, 'train', 224, 224, k=2)
+    valid_data = MultiViewDataset6Party(args.data, 'test', 224, 224, k=2)
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=0)
 
@@ -178,9 +180,9 @@ def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, ep
     model_B.train()
     cur_step = epoch * len(train_queue)
 
-    for step, (trn_X_A, trn_X_B, trn_y) in enumerate(train_queue):
-        input_A = trn_X_A.float().cuda()
-        input_B = trn_X_B.float().cuda()
+    for step, (trn_X, trn_y) in enumerate(train_queue):
+        input_A = trn_X[0].float().cuda()
+        input_B = trn_X[1].float().cuda()
         target = trn_y.view(-1).long().cuda()
         n = input_A.size(0)
         optimizer_A.zero_grad()
@@ -224,9 +226,9 @@ def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
     model_A.eval()
     model_B.eval()
     with torch.no_grad():
-        for step, (val_X_A, val_X_B, val_y) in enumerate(valid_queue):
-            input_A = val_X_A.float().cuda()
-            input_B = val_X_B.float().cuda()
+        for step, (val_X, val_y) in enumerate(valid_queue):
+            input_A = val_X[0].float().cuda()
+            input_B = val_X[1].float().cuda()
             target = val_y.view(-1).long().cuda()
             n = input_A.size(0)
             U_B = model_B(input_B)

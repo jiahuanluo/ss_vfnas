@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 
 from models.model_search_A_party import Network_A
 from architects.architect import Architect
-from dataset import MultiViewDataset
+from dataset import MultiViewDataset, MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
 parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
@@ -90,7 +90,8 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay)
 
-    train_data = MultiViewDataset(args.data, 'train', 32, 32)
+    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
+    train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=1)
 
     num_train = len(train_data)
     indices = list(range(num_train))
@@ -148,15 +149,17 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
     cur_step = epoch * len(train_queue)
     writer.add_scalar('train/lr', lr, cur_step)
 
-    for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
+    # for step, (trn_X_A, _, trn_y) in enumerate(train_queue):
+    for step, (trn_X, trn_y) in enumerate(train_queue):
         model.train()
-        input = trn_X_A.float().cuda()
+        input = trn_X[0].float().cuda()
         target = trn_y.view(-1).long().cuda()
         n = input.size(0)
 
         # get a random minibatch from the search queue with replacement
-        (val_X_A, _, val_y) = next(iter(valid_queue))
-        input_search = val_X_A.float().cuda()
+        # (val_X_A, _, val_y) = next(iter(valid_queue))
+        (val_X, val_y) = next(iter(valid_queue))
+        input_search = val_X[0].float().cuda()
         target_search = val_y.view(-1).long().cuda()
 
         architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
@@ -193,8 +196,8 @@ def infer(valid_queue, model, criterion, epoch, cur_step):
     top5 = utils.AvgrageMeter()
     model.eval()
     with torch.no_grad():
-        for step, (val_X_A, _, val_y) in enumerate(valid_queue):
-            val_X_A = val_X_A.float()
+        for step, (val_X, val_y) in enumerate(valid_queue):
+            val_X_A = val_X[0].float()
             val_y = val_y.view(-1).long()
             input = val_X_A.cuda()
             target = val_y.cuda()
