@@ -158,6 +158,7 @@ def main():
         if valid_acc_top1 > best_acc_top1:
             best_acc_top1 = valid_acc_top1
             is_best = True
+        logging.info('best_valid_acc_top1 %f', best_acc_top1)
 
         utils.save_checkpoint({
             'epoch': epoch + 1,
@@ -167,7 +168,6 @@ def main():
             'optimizer_A': optimizer_A.state_dict(),
             'optimizer_B': optimizer_B.state_dict(),
         }, is_best, args.name)
-    logging.info('best_acc_top1 %f', best_acc_top1)
 
 
 def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, epoch):
