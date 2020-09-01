@@ -46,6 +46,7 @@ parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoot
 parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
 parser.add_argument('--decay_period', type=int, default=1, help='epochs between two learning rate decays')
 parser.add_argument('--parallel', action='store_true', default=False, help='data parallelism')
+parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 
 parser.add_argument('--clip_norm_out', default=5.0, type=float)
 parser.add_argument('--clip_norm_grad', default=0.2, type=float)
@@ -104,8 +105,9 @@ def main():
 
     genotype_A = eval("genotypes.%s" % args.genotypes_A)
     genotype_B = eval("genotypes.%s" % args.genotypes_B)
-    model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A)
-    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B)
+    model_A = NetworkMulitview_A(args.init_channels, NUM_CLASSES, args.layers, args.auxiliary, genotype_A,
+                                 u_dim=args.u_dim)
+    model_B = NetworkMulitview_B(args.init_channels, args.layers, args.auxiliary, genotype_B, u_dim=args.u_dim)
     model_A = model_A.cuda()
     model_B = model_B.cuda()
 
@@ -137,8 +139,12 @@ def main():
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
-    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
-    scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    if args.learning_rate == 0.025:
+        scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_A, float(args.epochs))
+        scheduler_B = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_B, float(args.epochs))
+    else:
+        scheduler_A = torch.optim.lr_scheduler.StepLR(optimizer_A, args.decay_period, gamma=args.gamma)
+        scheduler_B = torch.optim.lr_scheduler.StepLR(optimizer_B, args.decay_period, gamma=args.gamma)
 
     best_acc_top1 = 0
     for epoch in range(args.epochs):
@@ -161,6 +167,7 @@ def main():
         if valid_acc_top1 > best_acc_top1:
             best_acc_top1 = valid_acc_top1
             is_best = True
+        logging.info('best_acc_top1 %f', best_acc_top1)
 
         utils.save_checkpoint({
             'epoch': epoch + 1,
@@ -170,7 +177,6 @@ def main():
             'optimizer_A': optimizer_A.state_dict(),
             'optimizer_B': optimizer_B.state_dict(),
         }, is_best, args.name)
-    logging.info('best_acc_top1 %f', best_acc_top1)
 
 
 def train(train_queue, model_A, model_B, criterion, optimizer_A, optimizer_B, epoch):
