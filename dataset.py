@@ -80,19 +80,22 @@ class MultiViewDataset6Party:
         ])
 
         self.classes, self.class_to_idx = self.find_class(data_dir)
-        subfixes = ['_' + str(((i - 1) * 30)).zfill(3) + '_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
+        # subfixes = ['_' + str(((i - 1) * 30)).zfill(3) + '_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
+        subfixes = ['_' + str(i).zfill(3) + '.png' for i in range(1, 81)]
         for label in self.classes:
             all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
-            all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
+            # all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
+            all_off_files = [item.split('.')[0] for item in all_files if item[-3:] == 'off']
             all_off_files = sorted(list(set(all_off_files)))
 
             for single_off_file in all_off_files:
                 all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
                 all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
-                for i in range(2):
-                    sample = [all_views[j + i * 6] for j in range(0, k)]
-                    self.x.append(sample)
-                    self.y.append([self.class_to_idx[label]])
+                # for i in range(2):
+                # sample = [all_views[j + i * 6] for j in range(0, k)]
+                sample = [all_views[j] for j in range(0, k)]
+                self.x.append(sample)
+                self.y.append([self.class_to_idx[label]])
 
         self.x = np.array(self.x)
         self.y = np.array(self.y)

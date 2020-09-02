@@ -16,8 +16,8 @@ from tensorboardX import SummaryWriter
 from models.resnet_two_party import Resnet_A, Resnet_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
-parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
-parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
+parser = argparse.ArgumentParser("modelnet40v1png")
+parser.add_argument('--data', type=str, default='data/modelnet40v1png',
                     help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
 parser.add_argument('--batch_size', type=int, default=48, help='batch size')
