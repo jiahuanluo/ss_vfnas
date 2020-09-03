@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torchvision import transforms
+import random
 
 
 class MultiViewDataset:
@@ -81,7 +82,7 @@ class MultiViewDataset6Party:
 
         self.classes, self.class_to_idx = self.find_class(data_dir)
         # subfixes = ['_' + str(((i - 1) * 30)).zfill(3) + '_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
-        subfixes = ['_' + str(i).zfill(3) + '.png' for i in range(1, 81)]
+        subfixes = ['_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
         for label in self.classes:
             all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
             # all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
@@ -91,7 +92,9 @@ class MultiViewDataset6Party:
             for single_off_file in all_off_files:
                 all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
                 all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
-                # for i in range(2):
+                # if data_type == "test":
+                #     random.shuffle(all_views)
+                # for i in range(13):
                 # sample = [all_views[j + i * 6] for j in range(0, k)]
                 sample = [all_views[j] for j in range(0, k)]
                 self.x.append(sample)
@@ -123,9 +126,8 @@ class MultiViewDataset6Party:
         return data, np.array(labels).ravel()
 
 
-
 def test_dataset():
-    DATA_DIR = './data/modelnet_manually_aligned_png_full/'
+    DATA_DIR = './data/modelnet40v2png/'
     train_dataset = MultiViewDataset6Party(DATA_DIR, 'train', 32, 32, 1)
     valid_dataset = MultiViewDataset6Party(DATA_DIR, 'test', 32, 32, 1)
     n_train = len(train_dataset)

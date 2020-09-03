@@ -14,12 +14,12 @@ import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
 
-from models.model_search_two_party import Network_A, Network_B
+from models.model_search_k_party import Network_A, Network_B
 from architects.architect_k_party import Architect_A, Architect_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
-parser = argparse.ArgumentParser("modelnet_manually_aligned_png_full")
-parser.add_argument('--data', type=str, default='data/modelnet_manually_aligned_png_full',
+parser = argparse.ArgumentParser("modelnet40v1png")
+parser.add_argument('--data', type=str, default='data/modelnet40v1png',
                     help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
 parser.add_argument('--batch_size', type=int, default=32, help='batch size')
@@ -43,7 +43,7 @@ parser.add_argument('--unrolled', action='store_true', default=False, help='use 
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
-parser.add_argument('--k', type=int, default=2, help='num of client')
+parser.add_argument('--k', type=int, required=True, help='num of client')
 args = parser.parse_args()
 
 args.name = 'search/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
@@ -80,17 +80,14 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model_A = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion, u_dim=args.u_dim)
-    guest_model_list = [Network_B(args.init_channels, args.layers, criterion, u_dim=args.u_dim) for _ in range(args.k)]
-    model_A = model_A.cuda()
-    guest_model_list = [guest_model.cuda() for guest_model in guest_model_list]
-    # logging.info("model_A param size = %fMB", utils.count_parameters_in_MB(model_A))
-    # logging.info("model_B param size = %fMB", utils.count_parameters_in_MB(model_B))
+    model_A = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion, u_dim=args.u_dim, k=args.k)
+    model_list = [model_A] + [Network_B(args.init_channels, args.layers, criterion, u_dim=args.u_dim) for _ in
+                              range(args.k - 1)]
+    model_list = [model.cuda() for model in model_list]
 
-    optimizer_A = torch.optim.SGD(model_A.parameters(), args.learning_rate, momentum=args.momentum,
-                                  weight_decay=args.weight_decay)
-    guest_optimizer_list = [torch.optim.SGD(guest_model.parameters(), args.learning_rate, momentum=args.momentum,
-                                            weight_decay=args.weight_decay) for guest_model in guest_model_list]
+    optimizer_list = [
+        torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
+        for model in model_list]
     # train_data = MultiViewDataset(args.data, 'train', 32, 32)
     train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
 
@@ -109,72 +106,53 @@ def main():
         sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
         pin_memory=True, num_workers=0)
 
-    scheduler_A = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer_A, float(args.epochs), eta_min=args.learning_rate_min)
-    guest_scheduler_list = [
-        torch.optim.lr_scheduler.CosineAnnealingLR(guest_optimizer, float(args.epochs), eta_min=args.learning_rate_min)
-        for guest_optimizer in guest_optimizer_list]
+    scheduler_list = [
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs), eta_min=args.learning_rate_min)
+        for optimizer in optimizer_list]
 
     architect_A = Architect_A(model_A, args)
-    guest_architect_list = [Architect_B(guest_model, args) for guest_model in guest_model_list]
+    architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
     best_top1 = 0.
     for epoch in range(args.epochs):
-        scheduler_A.step()
-        guest_scheduler_list = [guest_scheduler.step() for guest_scheduler in guest_scheduler_list]
-        lr = scheduler_A.get_lr()[0]
+        [scheduler_list[i].step() for i in range(args.k)]
+        lr = scheduler_list[0].get_lr()[0]
         logging.info('epoch %d lr %e', epoch, lr)
 
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model_A, guest_model_list, architect_A,
-                                     guest_architect_list, criterion, optimizer_A, guest_optimizer_list, lr, epoch)
+        train_acc, train_obj = train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list,
+                                     lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
         cur_step = (epoch + 1) * len(train_queue)
-        valid_acc, valid_obj = infer(valid_queue, model_A, guest_model_list, criterion, epoch, cur_step)
+        valid_acc, valid_obj = infer(valid_queue, model_list, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
 
         genotype_A = model_A.genotype()
-        # genotype_B = model_B.genotype()
-        # logging.info('genotype_A = %s', genotype_A)
-        # logging.info('genotype_B = %s', genotype_B)
-        #
-        # logging.info('Model_A alphas')
-        # logging.info(F.softmax(model_A.alphas_normal, dim=-1))
-        # logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
-        #
-        # logging.info('Model_B alphas')
-        # logging.info(F.softmax(model_B.alphas_normal, dim=-1))
-        # logging.info(F.softmax(model_B.alphas_reduce, dim=-1))
 
         if best_top1 < valid_acc:
             best_top1 = valid_acc
-            best_genotype_A = genotype_A
-            best_guest_genotype_list = [guest_model.genotype() for guest_model in guest_model_list]
+            best_genotype_list = [model.genotype() for model in model_list]
             # utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
             # utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
     logging.info("Final best Prec@1 = %f", best_top1)
-    logging.info("Best Genotype_A = {}".format(best_genotype_A))
-    for best_guest_genotype in best_guest_genotype_list:
-        logging.info("Best Genotype_B = {}".format(best_guest_genotype))
+    for i in range(args.k):
+        logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
 
 
-def train(train_queue, valid_queue, model_A, guest_model_list, architect_A, guest_architect_list, criterion,
-          optimizer_A, guest_optimizer_list, lr, epoch):
+def train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list, lr, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
     cur_step = epoch * len(train_queue)
     writer.add_scalar('train/lr', lr, cur_step)
-    model_A.train()
-    for guest_model in guest_model_list:
-        guest_model.train()
+    model_list = [model.train() for model in model_list]
+    k = len(model_list)
     for step, (trn_X, trn_y) in enumerate(train_queue):
         trn_X = [x.float().cuda() for x in trn_X]
-        # input_A = trn_X[0].float().cuda()
-        # input_B = trn_X[1].float().cuda()
+
         target = trn_y.view(-1).long().cuda()
         n = target.size(0)
 
@@ -182,17 +160,21 @@ def train(train_queue, valid_queue, model_A, guest_model_list, architect_A, gues
         (val_X, val_y) = next(iter(valid_queue))
         val_X = [x.float().cuda() for x in val_X]
         target_search = val_y.view(-1).long().cuda()
+        U_B_val_list = None
+        if k > 1:
+            U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
 
-        U_B_val_list = [guest_model_list[i].get_u(val_X[i]) for i in range(len(val_X))]
-
-        U_B_gradients = architect_A.update_alpha(val_X, U_B_val_list, target_search)
-
-        architect_B.update_alpha(U_B_val, U_B_gradients)
-
-        U_B_train = model_B.get_u(input_B)
-        U_B_gradients, logits, loss = architect_A.update_weights(input_A, U_B_train, target, optimizer_A,
-                                                                 args.grad_clip)
-        architect_B.update_weights(U_B_train, U_B_gradients, optimizer_B, args.grad_clip)
+        U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
+        U_B_train_list = None
+        if k > 1:
+            [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in range(len(U_B_val_list))]
+            U_B_train_list = [model_list[i].get_u(trn_X[i]) for i in range(1, len(trn_X))]
+        U_B_gradients_list, logits, loss = architect_list[0].update_weights(trn_X[0], U_B_train_list, target,
+                                                                            optimizer_list[0],
+                                                                            args.grad_clip)
+        if k > 1:
+            [architect_list[i + 1].update_weights(U_B_train_list[i], U_B_gradients_list[i], optimizer_list[i+1],
+                                              args.grad_clip) for i in range(len(U_B_train_list))]
 
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         objs.update(loss.item(), n)
@@ -212,22 +194,21 @@ def train(train_queue, valid_queue, model_A, guest_model_list, architect_A, gues
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_A, model_B, criterion, epoch, cur_step):
+def infer(valid_queue, model_list, criterion, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
+    k = len(model_list)
 
-    model_A.eval()
-    model_B.eval()
+    [model.eval() for model in model_list]
     with torch.no_grad():
         for step, (val_X, val_y) in enumerate(valid_queue):
-            input_A = val_X[0].float().cuda()
-            input_B = val_X[1].float().cuda()
+            val_X = [x.float().cuda() for x in val_X]
             target = val_y.view(-1).long().cuda()
-            n = input_A.size(0)
+            n = target.size(0)
 
-            U_B = model_B(input_B)
-            loss, logits = model_A._loss(input_A, U_B, target)
+            U_B_list = [model_list[i](val_X[i]) for i in range(1, k)]
+            loss, logits = model_list[0]._loss(val_X[0], U_B_list, target)
 
             prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
             objs.update(loss.item(), n)
