@@ -6,7 +6,7 @@ from PIL import Image
 import torch
 from torchvision import transforms
 import random
-
+import cv2
 
 class MultiViewDataset:
 
@@ -126,10 +126,68 @@ class MultiViewDataset6Party:
         return data, np.array(labels).ravel()
 
 
+class ChexpertDataset:
+    def __init__(self, data_dir, data_type, height, width, k):
+        self.x = []  # the datapath of 2 different png files
+        self.y = []  # the corresponding label
+        self.data_dir = data_dir
+        self.height = height
+        self.width = width
+        self.k = k
+        self.transform = transforms.Compose([
+            transforms.Resize((height, width)),
+            transforms.ToTensor(),
+            # transforms.Normalize(mean=[0.89156885, 0.89156885, 0.89156885],
+            #                      std=[0.18063523, 0.18063523, 0.18063523]),
+        ])
+        self.label_path = os.path.join(data_dir, "aggr_train.csv")
+        all_samples = open(self.label_path).readlines()
+        patient_idx = [i for i in range(0, len(all_samples), 6)]
+        test_idx = random.sample(patient_idx, int(len(patient_idx) * 0.2))
+        train_idx = [i for i in patient_idx if i not in test_idx]
+        if data_type == "train":
+            # for i in range(0, len(all_samples), 6):
+            for i in train_idx:
+                sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
+                self.x.append(sample)
+                label = all_samples[i].strip().split(",")[1:]
+                label = list(map(int, label))
+                self.y.append(label)
+        elif data_type == "test":
+            for i in test_idx:
+                sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
+                self.x.append(sample)
+                label = all_samples[i].strip().split(",")[1:]
+                label = list(map(int, label))
+                self.y.append(label)
+        else:
+            raise ValueError("Please specify data_type")
+        self.x = np.array(self.x)
+        self.y = np.array(self.y)
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, indexx):  # this is single_indexx
+        _views = self.x[indexx]
+        data = []
+        labels = []
+        for index in range(self.k):
+            img = cv2.imread(_views[index])
+            img = Image.fromarray(img)
+            # img = Image.open(_views[index])
+            if self.transform is not None:
+                img = self.transform(img)
+            data.append(img)
+        labels.append(self.y[indexx])
+
+        return data, np.array(labels).astype(np.float).ravel()
+
+
 def test_dataset():
-    DATA_DIR = './data/modelnet40v2png/'
-    train_dataset = MultiViewDataset6Party(DATA_DIR, 'train', 32, 32, 1)
-    valid_dataset = MultiViewDataset6Party(DATA_DIR, 'test', 32, 32, 1)
+    DATA_DIR = './data/CheXpert-v1.0-small/'
+    train_dataset = ChexpertDataset(DATA_DIR, 'train', 32, 32, 3)
+    valid_dataset = ChexpertDataset(DATA_DIR, 'train', 32, 32, 1)
     n_train = len(train_dataset)
     n_valid = len(valid_dataset)
     print(n_train)
@@ -149,6 +207,7 @@ def test_dataset():
                                                num_workers=2,
                                                pin_memory=True)
     for i, (x1, y) in enumerate(train_loader):
+        print(y)
         print(x1[0].shape, y.shape)
         break
 

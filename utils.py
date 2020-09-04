@@ -4,7 +4,7 @@ import torch
 import shutil
 import torchvision.transforms as transforms
 from torch.autograd import Variable
-
+from sklearn import metrics
 
 class AvgrageMeter(object):
 
@@ -119,3 +119,13 @@ def create_exp_dir(path, scripts_to_save=None):
         for script in scripts_to_save:
             dst_file = os.path.join(path, 'scripts', os.path.basename(script))
             shutil.copyfile(script, dst_file)
+
+
+def get_loss(output, target, index, criterion):
+    target = target[:, index].view(-1)
+    output = output[:, index].view(-1)
+    loss = criterion(output, target)
+
+    label = torch.sigmoid(output).ge(0.5).float()
+    acc = (target == label).float().sum() / len(label)
+    return (loss, acc, label)
