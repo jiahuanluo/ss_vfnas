@@ -15,8 +15,10 @@ class Manual_A(nn.Module):
             self.net = models.resnet101(pretrained=False, num_classes=u_dim)
         elif layers == 19:
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
+        elif layers == 51:
+            self.net = models.shufflenet_v2_x1_0(pretrained=False, num_classes=u_dim)
         else:
-            raise ValueError("Wrong number of layers for resnet")
+            raise ValueError("Wrong number of layers for model")
         self.classifier = nn.Linear(u_dim * k, num_classes)
 
     def forward(self, input, U_B):
@@ -39,8 +41,10 @@ class Manual_B(nn.Module):
             self.net = models.resnet101(pretrained=False, num_classes=u_dim)
         elif layers == 19:
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
+        elif layers == 51:
+            self.net = models.shufflenet_v2_x1_0(pretrained=False, num_classes=u_dim)
         else:
-            raise ValueError("Wrong number of layers for resnet")
+            raise ValueError("Wrong number of layers for model")
 
     def forward(self, input):
         out = self.net(input)
