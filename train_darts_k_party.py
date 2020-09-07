@@ -105,17 +105,19 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    criterion_smooth = CrossEntropyLabelSmooth(NUM_CLASSES, args.label_smooth)
-    criterion_smooth = criterion_smooth.cuda()
-
+    if args.label_smooth > 0:
+        criterion_smooth = CrossEntropyLabelSmooth(NUM_CLASSES, args.label_smooth)
+        criterion_smooth = criterion_smooth.cuda()
+    else:
+        criterion_smooth = criterion
     optimizer_list = [
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
 
     # train_data = MultiViewDataset(args.data, 'train', 224, 224)
     # valid_data = MultiViewDataset(args.data, 'test', 224, 224)
-    train_data = MultiViewDataset6Party(args.data, 'train', 224, 224, k=2)
-    valid_data = MultiViewDataset6Party(args.data, 'test', 224, 224, k=2)
+    train_data = MultiViewDataset6Party(args.data, 'train', 224, 224, k=args.k)
+    valid_data = MultiViewDataset6Party(args.data, 'test', 224, 224, k=args.k)
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=0)
 
@@ -124,7 +126,7 @@ def main():
 
     if args.learning_rate == 0.025:
         scheduler_list = [
-            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs), eta_min=args.learning_rate_min)
+            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs))
             for optimizer in optimizer_list]
     else:
         scheduler_list = [torch.optim.lr_scheduler.StepLR(optimizer, args.decay_period, gamma=args.gamma) for optimizer
