@@ -94,11 +94,11 @@ class MultiViewDataset6Party:
                 all_views = [os.path.join(data_dir, label, data_type, item) for item in all_views]
                 # if data_type == "test":
                 #     random.shuffle(all_views)
-                # for i in range(13):
-                # sample = [all_views[j + i * 6] for j in range(0, k)]
-                sample = [all_views[j] for j in range(0, k)]
-                self.x.append(sample)
-                self.y.append([self.class_to_idx[label]])
+                for i in range(2):
+                    sample = [all_views[j + i * 6] for j in range(0, k)]
+                # sample = [all_views[j] for j in range(0, k)]
+                    self.x.append(sample)
+                    self.y.append([self.class_to_idx[label]])
 
         self.x = np.array(self.x)
         self.y = np.array(self.y)
