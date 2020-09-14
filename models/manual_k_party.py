@@ -17,6 +17,8 @@ class Manual_A(nn.Module):
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
         elif layers == 51:
             self.net = models.shufflenet_v2_x1_0(pretrained=False, num_classes=u_dim)
+        elif layers == 52:
+            self.net = models.squeezenet1_0(pretrained=False, num_classes=u_dim)
         else:
             raise ValueError("Wrong number of layers for model")
         self.classifier = nn.Linear(u_dim * k, num_classes)
@@ -43,6 +45,8 @@ class Manual_B(nn.Module):
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
         elif layers == 51:
             self.net = models.shufflenet_v2_x1_0(pretrained=False, num_classes=u_dim)
+        elif layers == 52:
+            self.net = models.squeezenet1_0(pretrained=False, num_classes=u_dim)
         else:
             raise ValueError("Wrong number of layers for model")
 
