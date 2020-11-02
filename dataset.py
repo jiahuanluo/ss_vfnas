@@ -82,12 +82,14 @@ class MultiViewDataset6Party:
 
         self.classes, self.class_to_idx = self.find_class(data_dir)
         # subfixes = ['_' + str(((i - 1) * 30)).zfill(3) + '_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
+        #print(subfixes)
         subfixes = ['_' + str(i).zfill(3) + '.png' for i in range(1, 13)]
         for label in self.classes:
             all_files = [d for d in os.listdir(os.path.join(data_dir, label, data_type))]
             # all_off_files = ['_'.join(item.split('_')[:-2]) for item in all_files]
             all_off_files = [item.split('.')[0] for item in all_files if item[-3:] == 'off']
             all_off_files = sorted(list(set(all_off_files)))
+            #print(all_off_files)
 
             for single_off_file in all_off_files:
                 all_views = [single_off_file + sg_subfix for sg_subfix in subfixes]
@@ -97,6 +99,7 @@ class MultiViewDataset6Party:
                 for i in range(2):
                     sample = [all_views[j + i * 6] for j in range(0, k)]
                 # sample = [all_views[j] for j in range(0, k)]
+                #print(sample)
                     self.x.append(sample)
                     self.y.append([self.class_to_idx[label]])
 
@@ -140,22 +143,29 @@ class ChexpertDataset:
             # transforms.Normalize(mean=[0.89156885, 0.89156885, 0.89156885],
             #                      std=[0.18063523, 0.18063523, 0.18063523]),
         ])
-        self.label_path = os.path.join(data_dir, "aggr_train.csv")
+        if data_type == "train":
+            self.label_path = os.path.join(data_dir, "aggr_train.csv")
+        else:
+            self.label_path = os.path.join(data_dir, "5_valid.csv")
         all_samples = open(self.label_path).readlines()
-        patient_idx = [i for i in range(0, len(all_samples), 6)]
-        test_idx = random.sample(patient_idx, int(len(patient_idx) * 0.2))
-        train_idx = [i for i in patient_idx if i not in test_idx]
+        # patient_idx = [i for i in range(0, len(all_samples), 6)]
+        patient_idx = [i for i in range(0, len(all_samples))]
+        # test_idx = random.sample(patient_idx, int(len(patient_idx) * 0.2))
+        # train_idx = [i for i in patient_idx if i not in test_idx]
         if data_type == "train":
             # for i in range(0, len(all_samples), 6):
-            for i in train_idx:
+            for i in patient_idx:
                 sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
                 self.x.append(sample)
                 label = all_samples[i].strip().split(",")[1:]
                 label = list(map(int, label))
                 self.y.append(label)
+                if i == 9999:
+                    break
         elif data_type == "test":
-            for i in test_idx:
-                sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
+            for i in patient_idx:
+                # sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
+                sample = [os.path.join("data", all_samples[i].strip().split(",")[0]) for _ in range(0, k)]
                 self.x.append(sample)
                 label = all_samples[i].strip().split(",")[1:]
                 label = list(map(int, label))
@@ -185,9 +195,9 @@ class ChexpertDataset:
 
 
 def test_dataset():
-    DATA_DIR = './data/CheXpert-v1.0-small/'
-    train_dataset = ChexpertDataset(DATA_DIR, 'train', 32, 32, 3)
-    valid_dataset = ChexpertDataset(DATA_DIR, 'train', 32, 32, 1)
+    DATA_DIR = './data/modelnet_manually_aligned_png_v4/'
+    train_dataset = MultiViewDataset6Party(DATA_DIR, 'train', 32, 32, 6)
+    valid_dataset = MultiViewDataset6Party(DATA_DIR, 'test', 32, 32, 6)
     n_train = len(train_dataset)
     n_valid = len(valid_dataset)
     print(n_train)

@@ -13,7 +13,7 @@ import torch.utils
 import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
 from sklearn import metrics
-from models.manual_k_party import Manual_A, Manual_B
+from models.manual_k_party_chexpert import Manual_A, Manual_B
 from dataset import MultiViewDataset, MultiViewDataset6Party, ChexpertDataset
 
 parser = argparse.ArgumentParser("CheXpert-v1.0-small")
@@ -25,7 +25,7 @@ parser.add_argument('--learning_rate', type=float, default=0.1, help='init learn
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
 parser.add_argument('--report_freq', type=float, default=100, help='report frequency')
-parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
+parser.add_argument('--gpu', type=str, default='0', help='gpu device id')
 parser.add_argument('--epochs', type=int, default=250, help='num of training epochs')
 parser.add_argument('--init_channels', type=int, default=48, help='num of init channels')
 parser.add_argument('--layers', type=int, default=50, help='total number of layers')
@@ -83,17 +83,20 @@ def main():
 
     np.random.seed(args.seed)
     random.seed(args.seed)
-    torch.cuda.set_device(args.gpu)
+    device_ids = list(map(int, args.gpu.split(',')))
+    device = torch.device('cuda:{}'.format(device_ids[0]))
+    torch.cuda.set_device(device)
     cudnn.benchmark = True
     torch.manual_seed(args.seed)
     cudnn.enabled = True
     torch.cuda.manual_seed_all(args.seed)
-    logging.info('gpu device = %d' % args.gpu)
+    logging.info('gpu device = {}'.format(args.gpu))
     logging.info("args = %s", args)
 
     model_A = Manual_A(NUM_CLASSES, args.layers, u_dim=args.u_dim, k=args.k)
     model_list = [model_A] + [Manual_B(args.layers, u_dim=args.u_dim) for _ in range(args.k - 1)]
-    model_list = [model.cuda() for model in model_list]
+    # model_list = [model.cuda() for model in model_list]
+    model_list = [nn.DataParallel(model, device_ids=device_ids).to(device) for model in model_list]
 
     for i in range(args.k):
         logging.info("model_{} param size = {}MB".format(i + 1, utils.count_parameters_in_MB(model_list[i])))
@@ -204,6 +207,9 @@ def infer(valid_queue, model_list, criterion, epoch, cur_step):
     k = len(model_list)
     pred_list = [[] for _ in range(NUM_CLASSES)]
     true_list = [[] for _ in range(NUM_CLASSES)]
+    acc_sum = np.zeros(NUM_CLASSES)
+    loss_sum = np.zeros(NUM_CLASSES)
+
     with torch.no_grad():
         for step, (val_X, val_y) in enumerate(valid_queue):
             val_X = [x.float().cuda() for x in val_X]
@@ -212,32 +218,47 @@ def infer(valid_queue, model_list, criterion, epoch, cur_step):
             U_B_list = None
             if k > 1:
                 U_B_list = [model_list[i](val_X[i]) for i in range(1, len(model_list))]
-            logits = model_list[0](val_X[0], U_B_list)
-            loss = 0
-            acc_sum = np.zeros(NUM_CLASSES)
-            auc_sum = np.zeros(NUM_CLASSES)
+            output = model_list[0](val_X[0], U_B_list)
             for t in range(NUM_CLASSES):
-                loss_t, acc_t, label = utils.get_loss(logits, target, t, criterion)
-                loss += loss_t
+                loss_t, acc_t, _ = utils.get_loss(output, target, t, criterion)
+                output_tensor = torch.sigmoid(output[t].view(-1)).cpu().detach().numpy()
+                target_tensor = target[:, t].view(-1).cpu().detach().numpy()
+                if step == 0:
+                    pred_list[t] = output_tensor
+                    true_list[t] = target_tensor
+                else:
+                    pred_list[t] = np.append(pred_list[t], output_tensor)
+                    true_list[t] = np.append(true_list[t], target_tensor)
+                loss_sum[t] += loss_t.item()
                 acc_sum[t] += acc_t.item()
-                true_list[t].extend(target[:, t].view(-1).cpu())
-                pred_list[t].extend(label.cpu())
-                fpr, tpr, _ = metrics.roc_curve(true_list[t], pred_list[t], pos_label=1)
-                avg_auc = metrics.auc(fpr, tpr)
-                auc_sum[t] = avg_auc
-            objs.update(loss.item(), n)
+            objs.update(sum(loss_sum), n)
             acc.update(sum(acc_sum) / NUM_CLASSES * 100, n)
-            auc.update(sum(auc_sum) / NUM_CLASSES * 100, n)
+            acc_sum = np.zeros(NUM_CLASSES)
+            loss_sum = np.zeros(NUM_CLASSES)
             if step % args.report_freq == 0:
                 logging.info(
                     "Valid: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
-                    "Acc ({top1.avg:.1f}%, Auc {top5.avg:.1f}%)".format(
+                    "Acc ({top1.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
-                        top1=acc, top5=auc))
+                        top1=acc))
+        auclist = []
+        for i in range(NUM_CLASSES):
+            y_pred = pred_list[i]
+            y_true = true_list[i]
+            fpr, tpr, thresholds = metrics.roc_curve(
+                y_true, y_pred, pos_label=1)
+            auc = metrics.auc(fpr, tpr)
+            auclist.append(auc)
+        avg_auc = sum(auclist) / NUM_CLASSES * 100.
+        logging.info(
+            "Valid: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
+            "Acc ({top1.avg:.1f}%, Auc {top5:.1f}%)".format(
+                epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
+                top1=acc, top5=avg_auc))
         writer.add_scalar('valid/loss', objs.avg, cur_step)
         writer.add_scalar('valid/acc', acc.avg, cur_step)
-        writer.add_scalar('valid/auc', auc.avg, cur_step)
-        return acc.avg, auc.avg, objs.avg
+        writer.add_scalar('valid/auc', avg_auc, cur_step)
+        return acc.avg, avg_auc, objs.avg
 
 
 if __name__ == '__main__':

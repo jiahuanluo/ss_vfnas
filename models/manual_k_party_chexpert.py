@@ -17,13 +17,18 @@ class Manual_A(nn.Module):
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
         else:
             raise ValueError("Wrong number of layers for resnet")
-        self.classifier = nn.Linear(u_dim * k, num_classes)
+        for i in range(1, 6):
+            setattr(self, "fc_" + str(i), nn.Linear(u_dim * k, 1))
 
     def forward(self, input, U_B):
         out = self.net(input)
         if U_B is not None:
             out = torch.cat([out] + [U for U in U_B], dim=1)
-        logits = self.classifier(out)
+        logits = list()
+        for i in range(1, 6):
+            classifier = getattr(self, "fc_" + str(i))
+            logit = classifier(out)
+            logits.append(logit)
         return logits
 
 
