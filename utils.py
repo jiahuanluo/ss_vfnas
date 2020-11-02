@@ -123,9 +123,12 @@ def create_exp_dir(path, scripts_to_save=None):
 
 def get_loss(output, target, index, criterion):
     target = target[:, index].view(-1)
-    output = output[:, index].view(-1)
-    loss = criterion(output, target)
-
+    output = output[index].view(-1)
+    if target.sum() == 0:
+        loss = torch.tensor(0., requires_grad=True).cuda()
+    else:
+        weight = (target.size(0) - target.sum()) / target.sum()
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(output, target, torch.tensor(1.))
     label = torch.sigmoid(output).ge(0.5).float()
     acc = (target == label).float().sum() / len(label)
     return (loss, acc, label)
