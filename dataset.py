@@ -145,33 +145,24 @@ class ChexpertDataset:
         ])
         if data_type == "train":
             self.label_path = os.path.join(data_dir, "aggr_train.csv")
-        else:
-            self.label_path = os.path.join(data_dir, "5_valid.csv")
-        all_samples = open(self.label_path).readlines()
-        # patient_idx = [i for i in range(0, len(all_samples), 6)]
-        patient_idx = [i for i in range(0, len(all_samples))]
-        # test_idx = random.sample(patient_idx, int(len(patient_idx) * 0.2))
-        # train_idx = [i for i in patient_idx if i not in test_idx]
-        if data_type == "train":
-            # for i in range(0, len(all_samples), 6):
-            for i in patient_idx:
-                sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
-                self.x.append(sample)
-                label = all_samples[i].strip().split(",")[1:]
-                label = list(map(int, label))
-                self.y.append(label)
-                if i == 9999:
-                    break
         elif data_type == "test":
-            for i in patient_idx:
-                # sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
-                sample = [os.path.join("data", all_samples[i].strip().split(",")[0]) for _ in range(0, k)]
-                self.x.append(sample)
-                label = all_samples[i].strip().split(",")[1:]
-                label = list(map(int, label))
-                self.y.append(label)
+            self.label_path = os.path.join(data_dir, "aggr_test.csv")
         else:
             raise ValueError("Please specify data_type")
+        all_samples = open(self.label_path).readlines()[1:]
+        patient_idx = [i for i in range(0, len(all_samples), 6)]
+        # patient_idx = [i for i in range(0, len(all_samples))]
+        # test_idx = random.sample(patient_idx, int(len(patient_idx) * 0.2))
+        # train_idx = [i for i in patient_idx if i not in test_idx]
+            # for i in range(0, len(all_samples), 6):
+        for i in patient_idx:
+            # sample = [os.path.join("data", all_samples[j + i].strip().split(",")[0]) for j in range(0, k)]
+            sample = [os.path.join("data", all_samples[i + j].strip().split(",")[0]) for j in range(0, k)]
+            self.x.append(sample)
+            label = all_samples[i].strip().split(",")[1:]
+            label = list(map(int, label))
+            self.y.append(label)
+
         self.x = np.array(self.x)
         self.y = np.array(self.y)
 

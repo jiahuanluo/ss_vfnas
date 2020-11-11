@@ -60,22 +60,6 @@ writer.add_text('expername', args.name, 0)
 NUM_CLASSES = 5
 
 
-class CrossEntropyLabelSmooth(nn.Module):
-
-    def __init__(self, num_classes, epsilon):
-        super(CrossEntropyLabelSmooth, self).__init__()
-        self.num_classes = num_classes
-        self.epsilon = epsilon
-        self.logsoftmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, inputs, targets):
-        log_probs = self.logsoftmax(inputs)
-        targets = torch.zeros_like(log_probs).scatter_(1, targets.unsqueeze(1), 1)
-        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
-        loss = (-targets * log_probs).mean(0).sum()
-        return loss
-
-
 def main():
     if not torch.cuda.is_available():
         logging.info('no gpu device available')
@@ -155,6 +139,7 @@ def train(train_queue, model_list, criterion, optimizer_list, epoch):
     k = len(model_list)
 
     acc_sum = np.zeros(NUM_CLASSES)
+    loss_sum = np.zeros(NUM_CLASSES)
 
     for step, (trn_X, trn_y) in enumerate(train_queue):
         trn_X = [x.float().cuda() for x in trn_X]
@@ -169,6 +154,7 @@ def train(train_queue, model_list, criterion, optimizer_list, epoch):
         for t in range(NUM_CLASSES):
             loss_t, acc_t, _ = utils.get_loss(logits, target, t, criterion)
             loss += loss_t
+            loss_sum[t] += loss_t.item()
             acc_sum[t] += acc_t.item()
         objs.update(loss.item(), n)
         acc.update(sum(acc_sum) / NUM_CLASSES * 100, n)

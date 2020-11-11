@@ -6,6 +6,7 @@ import torch
 class Manual_A(nn.Module):
 
     def __init__(self, num_classes, layers, u_dim=64, k=2):
+        self.num_classes = num_classes
         super(Manual_A, self).__init__()
         if layers == 18:
             self.net = models.resnet18(pretrained=False, num_classes=u_dim)
@@ -17,7 +18,7 @@ class Manual_A(nn.Module):
             self.net = models.mobilenet_v2(pretrained=False, num_classes=u_dim)
         else:
             raise ValueError("Wrong number of layers for resnet")
-        for i in range(1, 6):
+        for i in range(1, num_classes + 1):
             setattr(self, "fc_" + str(i), nn.Linear(u_dim * k, 1))
 
     def forward(self, input, U_B):
@@ -25,12 +26,11 @@ class Manual_A(nn.Module):
         if U_B is not None:
             out = torch.cat([out] + [U for U in U_B], dim=1)
         logits = list()
-        for i in range(1, 6):
+        for i in range(1, self.num_classes + 1):
             classifier = getattr(self, "fc_" + str(i))
             logit = classifier(out)
             logits.append(logit)
         return logits
-
 
 class Manual_B(nn.Module):
 
