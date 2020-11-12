@@ -9,6 +9,8 @@ class Manual_A(nn.Module):
         super(Manual_A, self).__init__()
         if layers == 18:
             self.net = models.resnet18(pretrained=False, num_classes=u_dim)
+        elif layers == 34:
+            self.net = models.resnet34(pretrained=False, num_classes=u_dim)
         elif layers == 50:
             self.net = models.resnet50(pretrained=False, num_classes=u_dim)
         elif layers == 101:
@@ -37,6 +39,8 @@ class Manual_B(nn.Module):
         super(Manual_B, self).__init__()
         if layers == 18:
             self.net = models.resnet18(pretrained=False, num_classes=u_dim)
+        elif layers == 34:
+            self.net = models.resnet34(pretrained=False, num_classes=u_dim)
         elif layers == 50:
             self.net = models.resnet50(pretrained=False, num_classes=u_dim)
         elif layers == 101:
