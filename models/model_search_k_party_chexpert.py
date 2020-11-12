@@ -1,10 +1,9 @@
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from operations import *
 from torch.autograd import Variable
 from genotypes import PRIMITIVES
 from genotypes import Genotype
+import utils
 
 
 class MixedOp(nn.Module):
@@ -60,7 +59,7 @@ class Cell(nn.Module):
 
 class Network_A(nn.Module):
 
-    def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, u_dim=64):
+    def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, u_dim=64, k=2):
         super(Network_A, self).__init__()
         self._C = C
         self._num_classes = num_classes
@@ -91,8 +90,8 @@ class Network_A(nn.Module):
 
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.u_linear = nn.Linear(C_prev, u_dim)
-        self.classifier = nn.Linear(u_dim * 2, num_classes)
-
+        for i in range(1, num_classes + 1):
+            setattr(self, "fc_" + str(i), nn.Linear(u_dim * k, 1))
         self._initialize_alphas()
 
     def new(self):
@@ -110,15 +109,24 @@ class Network_A(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         out = self.u_linear(out)
-        concat_out = torch.cat((out, U_B), dim=1)
-        logits = self.classifier(concat_out)
+        if U_B is not None:
+            out = torch.cat([out] + [U for U in U_B], dim=1)
+        logits = list()
+        for i in range(1, self._num_classes + 1):
+            classifier = getattr(self, "fc_" + str(i))
+            logit = classifier(out)
+            logits.append(logit)
         return logits
 
     def _loss(self, input, U_B, target):
         logits = self(input, U_B)
-        return self._criterion(logits, target), logits
+        loss = 0
+        for t in range(self._num_classes):
+            loss_t, _, _ = utils.get_loss(logits, target, t)
+            loss += loss_t
+        return loss, logits
 
     def _initialize_alphas(self):
         k = sum(1 for i in range(self._steps) for n in range(2 + i))
@@ -166,7 +174,6 @@ class Network_A(nn.Module):
             reduce=gene_reduce, reduce_concat=concat
         )
         return genotype
-
 
 
 class Network_B(nn.Module):
@@ -218,7 +225,7 @@ class Network_B(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         u = self.u_linear(out)
         return u
 

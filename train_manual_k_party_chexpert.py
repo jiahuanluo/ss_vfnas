@@ -114,9 +114,6 @@ def main():
         cur_step = epoch * len(train_queue)
         writer.add_scalar('train/lr', lr, cur_step)
 
-        cur_step = epoch * len(train_queue)
-        writer.add_scalar('train/lr', lr, cur_step)
-
         train_acc, train_obj = train(train_queue, model_list, criterion, optimizer_list, epoch)
         logging.info('train_acc %f', train_acc)
 
