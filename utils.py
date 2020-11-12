@@ -121,7 +121,7 @@ def create_exp_dir(path, scripts_to_save=None):
             shutil.copyfile(script, dst_file)
 
 
-def get_loss(output, target, index, criterion):
+def get_loss(output, target, index):
     target = target[:, index].view(-1)
     output = output[index].view(-1)
     if target.sum() == 0:
