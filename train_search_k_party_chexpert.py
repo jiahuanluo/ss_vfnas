@@ -119,6 +119,7 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
+    best_auc = 0.
     best_acc = 0.
     for epoch in range(args.epochs):
         [scheduler_list[i].step() for i in range(args.k)]
@@ -140,8 +141,10 @@ def main():
             logging.info("Genotype_{} = {}".format(i + 1, model_list[i].genotype()))
         if best_acc < valid_acc:
             best_acc = valid_acc
+        if best_auc < valid_auc:
+            best_auc = valid_auc
             best_genotype_list = [model.genotype() for model in model_list]
-    logging.info("Final best Prec@1 = %f", best_acc)
+    logging.info("Final best AUC = %f", best_auc)
     for i in range(args.k):
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
 
