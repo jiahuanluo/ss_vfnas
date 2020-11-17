@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
-
 from models.manual_k_party import Manual_A, Manual_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
