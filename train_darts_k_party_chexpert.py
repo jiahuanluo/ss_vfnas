@@ -133,8 +133,8 @@ def main():
             best_acc = valid_acc
         if best_auc < valid_auc:
             best_auc = valid_auc
-        logging.info("Final best ACC = %f", best_acc)
-        logging.info("Final best AUC = %f", best_auc)
+    logging.info("Final best ACC = %f", best_acc)
+    logging.info("Final best AUC = %f", best_auc)
 
 
 def train(train_queue, model_list, optimizer_list, epoch):

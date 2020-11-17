@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
-
+from thop import profile
 from models.model_k_party import NetworkMulitview_A, NetworkMulitview_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
@@ -155,15 +155,6 @@ def main():
         if valid_acc_top1 > best_acc_top1:
             best_acc_top1 = valid_acc_top1
         logging.info('best_acc_top1 %f', best_acc_top1)
-
-        # utils.save_checkpoint({
-        #     'epoch': epoch + 1,
-        #     'state_dict_A': model_A.state_dict(),
-        #     'state_dict_B': model_B.state_dict(),
-        #     'best_acc_top1': best_acc_top1,
-        #     'optimizer_A': optimizer_A.state_dict(),
-        #     'optimizer_B': optimizer_B.state_dict(),
-        # }, is_best, args.name)
 
 
 def train(train_queue, model_list, criterion, optimizer_list, epoch):

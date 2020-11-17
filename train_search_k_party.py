@@ -9,7 +9,6 @@ import logging
 import argparse
 import torch.nn as nn
 import torch.utils
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
@@ -17,6 +16,7 @@ from tensorboardX import SummaryWriter
 from models.model_search_k_party import Network_A, Network_B
 from architects.architect_k_party import Architect_A, Architect_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
+from dp_utils import add_dp_to_list
 
 parser = argparse.ArgumentParser("modelnet40v1png")
 parser.add_argument('--data', type=str, default='data/modelnet40v1png',
@@ -44,6 +44,12 @@ parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='lear
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 parser.add_argument('--k', type=int, required=True, help='num of client')
+parser.add_argument('--dp', action='store_true', default=False, help='add dp to u')
+parser.add_argument('--clip_norm_out', default=5.0, type=float)
+parser.add_argument('--clip_norm_grad', default=0.2, type=float)
+parser.add_argument('--noise_variance_out', default=1.0, type=float)
+parser.add_argument('--noise_variance_grad', default=0.1, type=float)
+
 args = parser.parse_args()
 
 args.name = 'search/{}-{}'.format(args.name, time.strftime("%Y%m%d-%H%M%S"))
@@ -88,7 +94,6 @@ def main():
     optimizer_list = [
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
-    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
     train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
 
     num_train = len(train_data)
@@ -120,17 +125,17 @@ def main():
         logging.info('epoch %d lr %e', epoch, lr)
 
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list,
+        train_acc, train_obj = train(train_queue, valid_queue, model_list, architect_list, optimizer_list,
                                      lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
         cur_step = (epoch + 1) * len(train_queue)
-        valid_acc, valid_obj = infer(valid_queue, model_list, criterion, epoch, cur_step)
+        valid_acc, valid_obj = infer(valid_queue, model_list, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
 
-        genotype_A = model_A.genotype()
-
+        for i in range(args.k):
+            logging.info("Genotype_{} = {}".format(i + 1, model_list[i].genotype()))
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype_list = [model.genotype() for model in model_list]
@@ -141,7 +146,7 @@ def main():
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
 
 
-def train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list, lr, epoch):
+def train(train_queue, valid_queue, model_list, architect_list, optimizer_list, lr, epoch):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
@@ -194,7 +199,7 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
     return top1.avg, objs.avg
 
 
-def infer(valid_queue, model_list, criterion, epoch, cur_step):
+def infer(valid_queue, model_list, epoch, cur_step):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()

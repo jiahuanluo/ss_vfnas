@@ -26,26 +26,26 @@ class Architect_A(object):
         self.optimizer.step()
         w_optimizer.zero_grad()
         for w, trn_gradient in zip(self.model.parameters(), train_weights_gradients):
-            w.grad = trn_gradient.detach()
+            if trn_gradient is not None:
+                w.grad = trn_gradient.detach()
         nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
         w_optimizer.step()
 
     def compute_grad(self, X, U_B_list, target, need_weight_grad):
         if U_B_list is not None:
             U_B_list = [torch.autograd.Variable(U_B_list[i], requires_grad=True).cuda() for i in
-                              range(0, len(U_B_list))]
+                        range(0, len(U_B_list))]
         loss, logits = self.model._loss(X, U_B_list, target)
         U_B_gradients_list = None
         if U_B_list is not None:
             U_B_gradients_list = [torch.autograd.grad(loss, U_B, retain_graph=True) for U_B in
-                             U_B_list]
+                                  U_B_list]
         alpha_gradients = torch.autograd.grad(loss, self.model.arch_parameters(), retain_graph=True)
         if need_weight_grad:
-            weights_gradients = torch.autograd.grad(loss, self.model.parameters(), retain_graph=True)
+            weights_gradients = torch.autograd.grad(loss, self.model.parameters(), retain_graph=True, allow_unused=True)
             return U_B_gradients_list, alpha_gradients, weights_gradients, logits, loss
         else:
             return U_B_gradients_list, alpha_gradients
-
 
 
 class Architect_B(object):
@@ -66,7 +66,8 @@ class Architect_B(object):
         alpha_valid_gradients = torch.autograd.grad(U_B_val, self.model.arch_parameters(),
                                                     grad_outputs=U_B_valid_gradients,
                                                     retain_graph=True)
-        for alpha, val_gradient, trn_gradient in zip(self.model.arch_parameters(), alpha_valid_gradients, alpha_train_gradients):
+        for alpha, val_gradient, trn_gradient in zip(self.model.arch_parameters(), alpha_valid_gradients,
+                                                     alpha_train_gradients):
             alpha.grad = self.val_lambda * val_gradient.detach() + trn_gradient.detach()
         self.optimizer.step()
 

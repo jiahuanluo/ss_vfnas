@@ -9,17 +9,16 @@ import logging
 import argparse
 import torch.nn as nn
 import torch.utils
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
-
-from models.model_search_k_party import Network_A, Network_B
+from sklearn import metrics
+from models.model_search_k_party_chexpert import Network_A, Network_B
 from architects.architect_k_party_milenas import Architect_A, Architect_B
-from dataset import MultiViewDataset, MultiViewDataset6Party
+from dataset import MultiViewDataset, MultiViewDataset6Party, ChexpertDataset
 
-parser = argparse.ArgumentParser("modelnet40v1png")
-parser.add_argument('--data', type=str, default='data/modelnet40v1png',
+parser = argparse.ArgumentParser("CheXpert-v1.0-small")
+parser.add_argument('--data', type=str, default='data/CheXpert-v1.0-small',
                     help='location of the data corpus')
 parser.add_argument('--name', type=str, required=True, help='experiment name')
 parser.add_argument('--batch_size', type=int, default=32, help='batch size')
@@ -60,7 +59,7 @@ logging.getLogger().addHandler(fh)
 writer = SummaryWriter(log_dir=os.path.join(args.name, 'tb'))
 writer.add_text('expername', args.name, 0)
 
-NUM_CLASSES = 40
+NUM_CLASSES = 5
 
 
 def main():
@@ -78,7 +77,7 @@ def main():
     logging.info('gpu device = %d' % args.gpu)
     logging.info("args = %s", args)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     criterion = criterion.cuda()
     model_A = Network_A(args.init_channels, NUM_CLASSES, args.layers, criterion, u_dim=args.u_dim, k=args.k)
     model_list = [model_A] + [Network_B(args.init_channels, args.layers, criterion, u_dim=args.u_dim) for _ in
@@ -89,7 +88,7 @@ def main():
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
     # train_data = MultiViewDataset(args.data, 'train', 32, 32)
-    train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
+    train_data = ChexpertDataset(args.data, 'train', 32, 32, k=args.k)
 
     num_train = len(train_data)
     indices = list(range(num_train))
@@ -113,38 +112,42 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
-    best_top1 = 0.
+    best_auc = 0.
+    best_acc = 0.
     for epoch in range(args.epochs):
         [scheduler_list[i].step() for i in range(args.k)]
         lr = scheduler_list[0].get_lr()[0]
         logging.info('epoch %d lr %e', epoch, lr)
 
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list,
+        train_acc, train_obj = train(train_queue, valid_queue, model_list, architect_list, optimizer_list,
                                      lr, epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
         cur_step = (epoch + 1) * len(train_queue)
-        valid_acc, valid_obj = infer(valid_queue, model_list, criterion, epoch, cur_step)
+        valid_acc, valid_auc, valid_obj = infer(valid_queue, model_list, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
+        logging.info('valid_auc %f', valid_auc)
+        #
         for i in range(args.k):
             logging.info("Genotype_{} = {}".format(i + 1, model_list[i].genotype()))
-
-        if best_top1 < valid_acc:
-            best_top1 = valid_acc
+        if best_acc < valid_acc:
+            best_acc = valid_acc
+        if best_auc < valid_auc:
+            best_auc = valid_auc
             best_genotype_list = [model.genotype() for model in model_list]
-            # utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
-            # utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
-    logging.info("Final best Prec@1 = %f", best_top1)
+    logging.info("Final best ACC = %f", best_acc)
+    logging.info("Final best AUC = %f", best_auc)
     for i in range(args.k):
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
 
 
-def train(train_queue, valid_queue, model_list, architect_list, criterion, optimizer_list, lr, epoch):
+def train(train_queue, valid_queue, model_list, architect_list, optimizer_list, lr, epoch):
     objs = utils.AvgrageMeter()
-    top1 = utils.AvgrageMeter()
-    top5 = utils.AvgrageMeter()
+    acc = utils.AvgrageMeter()
+    acc_sum = np.zeros(NUM_CLASSES)
+    loss_sum = np.zeros(NUM_CLASSES)
 
     cur_step = epoch * len(train_queue)
     writer.add_scalar('train/lr', lr, cur_step)
@@ -153,13 +156,13 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
     for step, (trn_X, trn_y) in enumerate(train_queue):
         trn_X = [x.float().cuda() for x in trn_X]
 
-        target = trn_y.view(-1).long().cuda()
+        target = trn_y.float().cuda()
         n = target.size(0)
 
         # get a random minibatch from the search queue with replacement
         (val_X, val_y) = next(iter(valid_queue))
         val_X = [x.float().cuda() for x in val_X]
-        target_search = val_y.view(-1).long().cuda()
+        target_search = val_y.float().cuda()
         U_B_train_list = None
         U_B_val_list = None
         if k > 1:
@@ -178,55 +181,85 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
             [architect_list[i + 1].update_alpha(U_B_train_list[i], U_B_train_gradients_list[i], U_B_val_list[i],
                                                 U_B_val_gradients_list[i]) for i in range(len(U_B_val_list))]
         optimizer_list[0].step()
-        prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+        for t in range(NUM_CLASSES):
+            loss_t, acc_t, _ = utils.get_loss(logits, target, t)
+            loss += loss_t
+            loss_sum[t] += loss_t.item()
+            acc_sum[t] += acc_t.item()
         objs.update(loss.item(), n)
-        top1.update(prec1.item(), n)
-        top5.update(prec5.item(), n)
+        acc.update(sum(acc_sum) / NUM_CLASSES * 100, n)
+        acc_sum = np.zeros(NUM_CLASSES)
+
         if step % args.report_freq == 0:
             logging.info(
                 "Train: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
-                "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
-                    epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs,
-                    top1=top1, top5=top5))
+                "Acc ({top1.avg:.1f}%)".format(
+                    epoch + 1, args.epochs, step, len(train_queue) - 1, losses=objs, top1=acc))
         writer.add_scalar('train/loss', objs.avg, cur_step)
-        writer.add_scalar('train/top1', top1.avg, cur_step)
-        writer.add_scalar('train/top5', top5.avg, cur_step)
+        writer.add_scalar('train/acc', acc.avg, cur_step)
         cur_step += 1
+    return acc.avg, objs.avg
 
-    return top1.avg, objs.avg
 
-
-def infer(valid_queue, model_list, criterion, epoch, cur_step):
+def infer(valid_queue, model_list, epoch, cur_step):
     objs = utils.AvgrageMeter()
-    top1 = utils.AvgrageMeter()
-    top5 = utils.AvgrageMeter()
+    acc = utils.AvgrageMeter()
     k = len(model_list)
-
+    pred_list = [[] for _ in range(NUM_CLASSES)]
+    true_list = [[] for _ in range(NUM_CLASSES)]
+    acc_sum = np.zeros(NUM_CLASSES)
+    loss_sum = np.zeros(NUM_CLASSES)
     [model.eval() for model in model_list]
+
     with torch.no_grad():
         for step, (val_X, val_y) in enumerate(valid_queue):
             val_X = [x.float().cuda() for x in val_X]
-            target = val_y.view(-1).long().cuda()
+            target = val_y.float().cuda()
             n = target.size(0)
-
-            U_B_list = [model_list[i](val_X[i]) for i in range(1, k)]
-            loss, logits = model_list[0]._loss(val_X[0], U_B_list, target)
-
-            prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-            objs.update(loss.item(), n)
-            top1.update(prec1.item(), n)
-            top5.update(prec5.item(), n)
-
+            U_B_list = None
+            if k > 1:
+                U_B_list = [model_list[i](val_X[i]) for i in range(1, len(model_list))]
+            output = model_list[0](val_X[0], U_B_list)
+            for t in range(NUM_CLASSES):
+                loss_t, acc_t, _ = utils.get_loss(output, target, t)
+                output_tensor = torch.sigmoid(output[t].view(-1)).cpu().detach().numpy()
+                target_tensor = target[:, t].view(-1).cpu().detach().numpy()
+                if step == 0:
+                    pred_list[t] = output_tensor
+                    true_list[t] = target_tensor
+                else:
+                    pred_list[t] = np.append(pred_list[t], output_tensor)
+                    true_list[t] = np.append(true_list[t], target_tensor)
+                loss_sum[t] += loss_t.item()
+                acc_sum[t] += acc_t.item()
+            objs.update(sum(loss_sum), n)
+            acc.update(sum(acc_sum) / NUM_CLASSES * 100, n)
+            acc_sum = np.zeros(NUM_CLASSES)
+            loss_sum = np.zeros(NUM_CLASSES)
             if step % args.report_freq == 0:
                 logging.info(
                     "Valid: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
-                    "Prec@(1,5) ({top1.avg:.1f}%, {top5.avg:.1f}%)".format(
+                    "Acc ({top1.avg:.1f}%)".format(
                         epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
-                        top1=top1, top5=top5))
-    writer.add_scalar('valid/loss', objs.avg, cur_step)
-    writer.add_scalar('valid/top1', top1.avg, cur_step)
-    writer.add_scalar('valid/top5', top5.avg, cur_step)
-    return top1.avg, objs.avg
+                        top1=acc))
+        auclist = []
+        for i in range(NUM_CLASSES):
+            y_pred = pred_list[i]
+            y_true = true_list[i]
+            fpr, tpr, thresholds = metrics.roc_curve(
+                y_true, y_pred, pos_label=1)
+            auc = metrics.auc(fpr, tpr)
+            auclist.append(auc)
+        avg_auc = sum(auclist) / NUM_CLASSES * 100.
+        logging.info(
+            "Valid: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
+            "Acc ({top1.avg:.1f}%, Auc {top5:.1f}%)".format(
+                epoch + 1, args.epochs, step, len(valid_queue) - 1, losses=objs,
+                top1=acc, top5=avg_auc))
+        writer.add_scalar('valid/loss', objs.avg, cur_step)
+        writer.add_scalar('valid/acc', acc.avg, cur_step)
+        writer.add_scalar('valid/auc', avg_auc, cur_step)
+        return acc.avg, avg_auc, objs.avg
 
 
 if __name__ == '__main__':
