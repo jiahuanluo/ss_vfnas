@@ -5,7 +5,7 @@ from graphviz import Digraph
 
 def plot(genotype, filename):
   g = Digraph(
-      format='pdf',
+      format='png',
       edge_attr=dict(fontsize='20', fontname="times"),
       node_attr=dict(style='filled', shape='rect', align='center', fontsize='20', height='0.5', width='0.5', penwidth='2', fontname="times"),
       engine='dot')
@@ -35,7 +35,7 @@ def plot(genotype, filename):
   for i in range(steps):
     g.edge(str(i), "c_{k}", fillcolor="gray")
 
-  g.render(filename, view=True)
+  g.render(filename, view=False)
 
 
 if __name__ == '__main__':
@@ -50,6 +50,6 @@ if __name__ == '__main__':
     print("{} is not specified in genotypes.py".format(genotype_name)) 
     sys.exit(1)
 
-  plot(genotype.normal, "normal")
-  plot(genotype.reduce, "reduction")
+  plot(genotype.normal, "B_normal")
+  plot(genotype.reduce, "B_reduction")
 
