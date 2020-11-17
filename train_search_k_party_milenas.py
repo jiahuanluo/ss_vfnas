@@ -128,8 +128,8 @@ def main():
         cur_step = (epoch + 1) * len(train_queue)
         valid_acc, valid_obj = infer(valid_queue, model_list, criterion, epoch, cur_step)
         logging.info('valid_acc %f', valid_acc)
-
-        genotype_A = model_A.genotype()
+        for i in range(args.k):
+            logging.info("Genotype_{} = {}".format(i + 1, model_list[i].genotype()))
 
         if best_top1 < valid_acc:
             best_top1 = valid_acc
