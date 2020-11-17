@@ -14,7 +14,7 @@ import torch.utils
 import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
 
-from models.model_k_party import NetworkMulitview_A, NetworkMulitview_B
+from models.model_k_party_dp import NetworkMulitview_A, NetworkMulitview_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 from dp_utils import add_dp_to_list
 
@@ -188,6 +188,7 @@ def train(train_queue, model_list, criterion, optimizer_list, epoch):
         n = target.size(0)
         [optimizer_list[i].zero_grad() for i in range(k)]
         U_B_list = None
+        U_B_list_noised = None
         if k > 1:
             U_B_list = [model_list[i](trn_X[i]) for i in range(1, len(model_list))]
             # add dp
@@ -198,7 +199,7 @@ def train(train_queue, model_list, criterion, optimizer_list, epoch):
 
         loss = criterion(logits, target)
         if k > 1:
-            U_B_gradients_list = [torch.autograd.grad(loss, U_B, retain_graph=True) for U_B in U_B_list]
+            U_B_gradients_list = [torch.autograd.grad(loss, U_B, retain_graph=True) for U_B in U_B_list_noised]
             # add dp to gradients for weights update
             U_B_gradients_list = add_dp_to_list(U_B_gradients_list, args.clip_norm_grad, args.noise_variance_grad)
             model_B_weights_gradients_list = [

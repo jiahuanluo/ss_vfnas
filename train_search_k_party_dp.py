@@ -14,7 +14,7 @@ import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
 
-from models.model_search_k_party import Network_A, Network_B
+from models.model_search_k_party_dp import Network_A, Network_B
 from architects.architect_k_party import Architect_A, Architect_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
