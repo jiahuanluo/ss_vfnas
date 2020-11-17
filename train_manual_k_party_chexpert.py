@@ -106,6 +106,7 @@ def main():
         scheduler_list = [torch.optim.lr_scheduler.StepLR(optimizer, args.decay_period, gamma=args.gamma) for optimizer
                           in optimizer_list]
     best_auc = 0
+    best_acc = 0
     for epoch in range(args.epochs):
         [scheduler_list[i].step() for i in range(len(scheduler_list))]
         lr = scheduler_list[0].get_lr()[0]
@@ -125,7 +126,11 @@ def main():
         #
         if valid_auc > best_auc:
             best_auc = valid_auc
-        logging.info('best_valid_auc %f', best_auc)
+        if valid_acc > best_acc:
+            best_acc = valid_acc
+        logging.info('best_valid_ACC %f', best_acc)
+        logging.info('best_valid_AUC %f', best_auc)
+
 
 
 def train(train_queue, model_list, criterion, optimizer_list, epoch):
@@ -149,7 +154,7 @@ def train(train_queue, model_list, criterion, optimizer_list, epoch):
         logits = model_list[0](trn_X[0], U_B_list)
         loss = 0
         for t in range(NUM_CLASSES):
-            loss_t, acc_t, _ = utils.get_loss(logits, target, t, criterion)
+            loss_t, acc_t, _ = utils.get_loss(logits, target, t)
             loss += loss_t
             loss_sum[t] += loss_t.item()
             acc_sum[t] += acc_t.item()
@@ -203,7 +208,7 @@ def infer(valid_queue, model_list, criterion, epoch, cur_step):
                 U_B_list = [model_list[i](val_X[i]) for i in range(1, len(model_list))]
             output = model_list[0](val_X[0], U_B_list)
             for t in range(NUM_CLASSES):
-                loss_t, acc_t, _ = utils.get_loss(output, target, t, criterion)
+                loss_t, acc_t, _ = utils.get_loss(output, target, t)
                 output_tensor = torch.sigmoid(output[t].view(-1)).cpu().detach().numpy()
                 target_tensor = target[:, t].view(-1).cpu().detach().numpy()
                 if step == 0:
