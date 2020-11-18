@@ -14,7 +14,7 @@ import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
 
-from models.model_search_k_party import Network_A, Network_B
+from models.model_search_k_party_moco import Network_A, Network_B
 from architects.architect_k_party import Architect_A, Architect_B
 from dataset import MultiViewDataset, MultiViewDataset6Party
 
@@ -91,18 +91,12 @@ def main():
     optimizer_list = [
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
-    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
     train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
 
     num_train = len(train_data)
     indices = list(range(num_train))
     random.shuffle(indices)
     split = int(np.floor(args.train_portion * num_train))
-
-    selftrain_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices),
-        pin_memory=True, num_workers=0)
 
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size,
@@ -121,18 +115,18 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
+    os.makedirs("self_train_model_saved", exist_ok=True)
     if args.self_train:
-        moco_optimizer_A = torch.optim.Adam(list(model_list[0].parameters()) + list(model_list[0].arch_parameters()))
-        moco_optimizer_B = torch.optim.Adam(list(model_list[1].parameters()) + list(model_list[1].arch_parameters()))
-
-        model_A_mementum = model_list[0].new(requires_grad=False)
-        model_B_mementum = model_list[1].new(requires_grad=False)
-
-        self_train(train_queue, encoder=model_list[0], momentum_encoder=model_A_mementum, index=0,
-                   optimizer=moco_optimizer_A, epoch=50, loss_function=criterion, temperature=0.07, momentum_rate=0.999)
-        self_train(train_queue, encoder=model_list[1], momentum_encoder=model_B_mementum, index=1,
-                   optimizer=moco_optimizer_B, epoch=50, loss_function=criterion, temperature=0.07, momentum_rate=0.999)
-        del model_A_mementum, model_B_mementum
+        for i in range(args.k):
+            moco_optimizer = torch.optim.Adam(list(model_list[i].parameters()) + list(model_list[i].arch_parameters()))
+            model_momentum = model_list[i].new(requires_grad=False)
+            self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=0,
+                       optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
+                       momentum_rate=0.999)
+            torch.save(model_list[i].state_dict(), "self_train_model_saved/Party_{}_model.pt".format(i+1))
+            logging.info("Self-train model {} finished and saved.".format(i))
+        logging.info("Self-train finished.")
+        assert False
 
     best_top1 = 0.
     for epoch in range(args.epochs):
@@ -189,9 +183,7 @@ def self_train(selftrain_queue, encoder, momentum_encoder, index, optimizer, epo
             loss = loss_function(logits / temperature, labels)
             loss.backward()
             optimizer.step()
-
             queue = torch.cat([k.detach(), queue[:queue.size(0) - k.size(0)]], dim=0)
-
             logging.info("self-train epoch {} with loss {}".format(i, loss))
 
         for enc_parmas, momen_params in zip(encoder.parameters(), momentum_encoder.parameters()):
@@ -221,6 +213,7 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
         val_X = [x.float().cuda() for x in val_X]
         target_search = val_y.view(-1).long().cuda()
         if args.fine_tune_alpha:
+
             U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
             U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
             [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in

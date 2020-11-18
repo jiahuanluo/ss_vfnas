@@ -95,11 +95,11 @@ class Network_A(nn.Module):
 
         self._initialize_alphas()
 
-    def new(self,requires_grad=True):
-        model_new = Network_B(self._C,  self._layers, self._criterion).cuda()
+    def new(self, requires_grad=True):
+        model_new = Network_B(self._C, self._layers, self._criterion).cuda()
         for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):
             x.data.copy_(y.data)
-            x.requires_grad=requires_grad
+            x.requires_grad = requires_grad
         return model_new
 
     def forward(self, input, U_B):
@@ -111,7 +111,7 @@ class Network_A(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         out = self.u_linear(out)
         if U_B is not None:
             out = torch.cat([out] + [U for U in U_B], dim=1)
@@ -142,7 +142,7 @@ class Network_A(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         mu = self.u_linear(out)
         return mu
 
@@ -183,7 +183,6 @@ class Network_A(nn.Module):
         return genotype
 
 
-
 class Network_B(nn.Module):
 
     def __init__(self, C, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, u_dim=64):
@@ -218,11 +217,11 @@ class Network_B(nn.Module):
         self.u_linear = nn.Linear(C_prev, u_dim)
         self._initialize_alphas()
 
-    def new(self,requires_grad=True):
-        model_new = Network_B(self._C,  self._layers, self._criterion).cuda()
+    def new(self, requires_grad=True):
+        model_new = Network_B(self._C, self._layers, self._criterion).cuda()
         for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):
             x.data.copy_(y.data)
-            x.requires_grad=requires_grad
+            x.requires_grad = requires_grad
         return model_new
 
     def forward(self, input):
@@ -234,7 +233,7 @@ class Network_B(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         u = self.u_linear(out)
         return u
 
@@ -298,6 +297,6 @@ class Network_B(nn.Module):
                 weights = F.softmax(self.alphas_normal, dim=-1)
             s0, s1 = s1, cell(s0, s1, weights)
         out = self.global_pooling(s1)
-        out = out.view(out.size(0), -1) # flatten
+        out = out.view(out.size(0), -1)  # flatten
         mu = self.u_linear(out)
         return mu
