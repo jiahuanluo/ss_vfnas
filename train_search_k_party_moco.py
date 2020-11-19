@@ -9,14 +9,13 @@ import logging
 import argparse
 import torch.nn as nn
 import torch.utils
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
 
 from models.model_search_k_party_moco import Network_A, Network_B
 from architects.architect_k_party import Architect_A, Architect_B
-from dataset import MultiViewDataset, MultiViewDataset6Party
+from dataset import MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet40v1png")
 parser.add_argument('--data', type=str, default='data/modelnet40v1png',
@@ -118,15 +117,23 @@ def main():
     os.makedirs("self_train_model_saved", exist_ok=True)
     if args.self_train:
         for i in range(args.k):
-            moco_optimizer = torch.optim.Adam(list(model_list[i].parameters()) + list(model_list[i].arch_parameters()))
-            model_momentum = model_list[i].new(requires_grad=False)
-            self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=0,
-                       optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
-                       momentum_rate=0.999)
-            torch.save(model_list[i].state_dict(), "self_train_model_saved/Party_{}_model.pt".format(i+1))
-            logging.info("Self-train model {} finished and saved.".format(i))
-        logging.info("Self-train finished.")
-        assert False
+            model_path = "self_train_model_saved/Party_{}_model.pt".format(i + 1)
+            if not os.path.exists(model_path):
+                moco_optimizer = torch.optim.Adam(
+                    list(model_list[i].parameters()) + list(model_list[i].arch_parameters()))
+                model_momentum = model_list[i].new(requires_grad=False)
+                self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=0,
+                           optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
+                           momentum_rate=0.999)
+                torch.save(model_list[i].state_dict(), model_path)
+                logging.info("Self-train model {} finished and saved.".format(i + 1))
+            else:
+                if i == 0:
+                    model_list[i].classifier = nn.Linear(args.u_dim * 6, NUM_CLASSES)
+                    model_list[i].load_state_dict(torch.load(model_path))
+                    model_list[i].classifier = nn.Linear(args.u_dim * args.k, NUM_CLASSES)
+                    model_list[i].cuda()
+                logging.info("Self-train model {} loaded.".format(i + 1))
 
     best_top1 = 0.
     for epoch in range(args.epochs):
@@ -151,8 +158,6 @@ def main():
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype_list = [model.genotype() for model in model_list]
-            # utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
-            # utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
     logging.info("Final best Prec@1 = %f", best_top1)
     for i in range(args.k):
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
@@ -212,13 +217,17 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
         (val_X, val_y) = next(iter(valid_queue))
         val_X = [x.float().cuda() for x in val_X]
         target_search = val_y.view(-1).long().cuda()
-        if args.fine_tune_alpha:
-
-            U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
-            U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
-            [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in
-             range(len(U_B_val_list))]
-        U_B_train_list = [model_list[i].get_u(trn_X[i]) for i in range(1, len(trn_X))]
+        U_B_val_list = None
+        if k > 1:
+            if args.fine_tune_alpha:
+                U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
+        # if args.fine_tune_alpha:
+        #     U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
+                U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
+                [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in range(len(U_B_val_list))]
+        U_B_train_list = None
+        if k > 1:
+            U_B_train_list = [model_list[i].get_u(trn_X[i]) for i in range(1, len(trn_X))]
         U_B_gradients_list, logits, loss = architect_list[0].update_weights(trn_X[0], U_B_train_list, target,
                                                                             optimizer_list[0],
                                                                             args.grad_clip)
