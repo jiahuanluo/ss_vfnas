@@ -163,9 +163,6 @@ def train(train_queue, model_list, optimizer_list, epoch):
             loss += loss_t
             loss_sum[t] += loss_t.item()
             acc_sum[t] += acc_t.item()
-        objs.update(loss.item(), n)
-        acc.update(sum(acc_sum) / NUM_CLASSES * 100, n)
-        acc_sum = np.zeros(NUM_CLASSES)
         if k > 1:
             U_B_gradients_list = [torch.autograd.grad(loss, U_B, retain_graph=True) for U_B in U_B_list]
             model_B_weights_gradients_list = [

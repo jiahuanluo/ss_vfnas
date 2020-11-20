@@ -8,7 +8,7 @@ __pycache__/
 # Log
 search/
 search*/
-eval/
+eval*/
 self_train_model_saved/
 # Data
 data/
