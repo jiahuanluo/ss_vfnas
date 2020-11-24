@@ -9,7 +9,7 @@ __pycache__/
 search/
 search*/
 eval*/
-self_train_model_saved/
+self_train_*/
 # Data
 data/
 # Distribution / packaging
