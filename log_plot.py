@@ -46,7 +46,8 @@ plt.savefig("eval/acc_size.png", bbox_inches='tight', dpi=320)
 x_list = [1, 2, 3, 4, 5, 6]
 
 darts = [79.6250, 82.3125, 83.1875, 84.3125, 84.5625, 85.2500]
-mile = [80.2500, 82.8125, 83.6245, 83.9375, 84.2500, 85.6250]
+mile = [80.2500, 82.3125, 83.6245, 83.9375, 84.2500, 85.6250]
+ssnas = [80.25,83.0625,83.25,84.9375,]
 shufflenet = [76.3750, 79.0000, 80.5000, 80.9375, 80.5625, 80.8125]
 squeezenet = [75.4375, 78.8750, 78.6250, 79.3125, 79.5600, 80.6250]
 res18 = [79.9375, 81.8750, 83.3750, 83.3750, 83.6250, 83.9375]
@@ -570,9 +571,9 @@ def dart_milenas():
     # plt.vlines(50, 0, 100)
     plt.plot(two_party_darts_x, two_party_darts_y, linestyle='--', linewidth=1.6, label="VFNAS$^{1}$")
     plt.plot(two_party_milenas_x, two_party_milenas_y, linestyle='--', linewidth=1.6, label="VFNAS$^{2}$")
-    plt.plot(two_party_moco_darts_alpha_x, two_party_moco_darts_alpha_y, linestyle='--', linewidth=1.6, label="Un-VFNAS$^{1}$")
+    plt.plot(two_party_moco_darts_alpha_x, two_party_moco_darts_alpha_y, linestyle='--', linewidth=1.6, label="SS-VFNAS$^{1}$")
     # plt.plot(two_party_moco_darts_wo_alpha_x, two_party_moco_darts_wo_alpha_y, linestyle='--', linewidth=2.0, label="VFNAS-MiLeNAS")
-    plt.plot(two_party_moco_milenas_alpha_x, two_party_moco_milenas_alpha_y, linestyle='--', linewidth=1.6, label="Un-VFNAS$^{2}$")
+    plt.plot(two_party_moco_milenas_alpha_x, two_party_moco_milenas_alpha_y, linestyle='--', linewidth=1.6, label="SS-VFNAS$^{2}$")
 
     # plt.scatter(two_party_darts_x[19], two_party_darts_y[19], c='dodgerblue')
     # plt.scatter(two_party_darts_x[29], two_party_darts_y[29], c='dodgerblue')
