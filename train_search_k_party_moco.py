@@ -44,7 +44,6 @@ parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weigh
 parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
 parser.add_argument('--k', type=int, required=True, help='num of client')
 parser.add_argument('--self_train', action='store_true', help='self train process')
-parser.add_argument('--fine_tune_alpha', action='store_true', help='fine-tune_alpha')
 
 args = parser.parse_args()
 
@@ -221,14 +220,12 @@ def train(train_queue, valid_queue, model_list, architect_list, criterion, optim
         target_search = val_y.view(-1).long().cuda()
         U_B_val_list = None
         if k > 1:
-            if args.fine_tune_alpha:
-                U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
-        # if args.fine_tune_alpha:
-        #     U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
-                U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
-                [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in range(len(U_B_val_list))]
+            U_B_val_list = [model_list[i].get_u(val_X[i]) for i in range(1, len(val_X))]
+
+        U_B_gradients_list = architect_list[0].update_alpha(val_X[0], U_B_val_list, target_search)
         U_B_train_list = None
         if k > 1:
+            [architect_list[i + 1].update_alpha(U_B_val_list[i], U_B_gradients_list[i]) for i in range(len(U_B_val_list))]
             U_B_train_list = [model_list[i].get_u(trn_X[i]) for i in range(1, len(trn_X))]
         U_B_gradients_list, logits, loss = architect_list[0].update_weights(trn_X[0], U_B_train_list, target,
                                                                             optimizer_list[0],

@@ -139,8 +139,6 @@ def main():
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype_list = [model.genotype() for model in model_list]
-            # utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
-            # utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
     logging.info("Final best Prec@1 = %f", best_top1)
     for i in range(args.k):
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))
