@@ -125,7 +125,7 @@ def main():
                 self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=i,
                            optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
                            momentum_rate=0.999)
-                torch.save(model_list[i].state_dict(), model_path)
+                torch.save(model_list[i].cpu().state_dict(), model_path)
                 logging.info("Self-train model {} finished and saved.".format(i + 1))
             else:
                 if i == 0:
