@@ -9,14 +9,13 @@ import logging
 import argparse
 import torch.nn as nn
 import torch.utils
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
 
-from models.model_search_k_party import Network_A, Network_B
+from models.model_search_k_party_moco import Network_A, Network_B
 from architects.architect_k_party_milenas import Architect_A, Architect_B
-from dataset import MultiViewDataset, MultiViewDataset6Party
+from dataset import MultiViewDataset6Party
 
 parser = argparse.ArgumentParser("modelnet40v1png")
 parser.add_argument('--data', type=str, default='data/modelnet40v1png',
@@ -89,7 +88,6 @@ def main():
     optimizer_list = [
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
-    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
     train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
 
     num_train = len(train_data)
@@ -114,19 +112,28 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
-
+    os.makedirs("self_train_milenas_model_saved", exist_ok=True)
     if args.self_train:
-        moco_optimizer_A = torch.optim.Adam(list(model_list[0].parameters()) + list(model_list[0].arch_parameters()))
-        moco_optimizer_B = torch.optim.Adam(list(model_list[1].parameters()) + list(model_list[1].arch_parameters()))
-
-        model_A_mementum = model_list[0].new(requires_grad=False)
-        model_B_mementum = model_list[1].new(requires_grad=False)
-
-        self_train(train_queue, encoder=model_list[0], momentum_encoder=model_A_mementum, index=0,
-                   optimizer=moco_optimizer_A, epoch=50, loss_function=criterion, temperature=0.07, momentum_rate=0.999)
-        self_train(train_queue, encoder=model_list[1], momentum_encoder=model_B_mementum, index=1,
-                   optimizer=moco_optimizer_B, epoch=50, loss_function=criterion, temperature=0.07, momentum_rate=0.999)
-        del model_A_mementum, model_B_mementum
+        for i in range(args.k):
+            model_path = "self_train_milenas_model_saved/Party_{}_model.pt".format(i + 1)
+            if not os.path.exists(model_path):
+                moco_optimizer = torch.optim.Adam(
+                    list(model_list[i].parameters()) + list(model_list[i].arch_parameters()))
+                model_momentum = model_list[i].new(requires_grad=False)
+                self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=i,
+                           optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
+                           momentum_rate=0.999)
+                torch.save(model_list[i].cpu().state_dict(), model_path)
+                logging.info("Self-train model {} finished and saved.".format(i + 1))
+            else:
+                if i == 0:
+                    model_list[i].classifier = nn.Linear(args.u_dim * 1, NUM_CLASSES)
+                    model_list[i].load_state_dict(torch.load(model_path))
+                    model_list[i].classifier = nn.Linear(args.u_dim * args.k, NUM_CLASSES)
+                else:
+                    model_list[i].load_state_dict(torch.load(model_path))
+                model_list[i].cuda()
+                logging.info("Self-train model {} loaded.".format(i + 1))
 
 
     best_top1 = 0.
@@ -152,8 +159,6 @@ def main():
         if best_top1 < valid_acc:
             best_top1 = valid_acc
             best_genotype_list = [model.genotype() for model in model_list]
-            # utils.save(model_A, os.path.join(args.name, 'model_A_weights.pt'))
-            # utils.save(model_B, os.path.join(args.name, 'model_B_weights.pt'))
     logging.info("Final best Prec@1 = %f", best_top1)
     for i in range(args.k):
         logging.info("Best Genotype_{} = {}".format(i + 1, best_genotype_list[i]))

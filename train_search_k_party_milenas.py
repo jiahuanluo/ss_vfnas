@@ -88,7 +88,6 @@ def main():
     optimizer_list = [
         torch.optim.SGD(model.parameters(), args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
         for model in model_list]
-    # train_data = MultiViewDataset(args.data, 'train', 32, 32)
     train_data = MultiViewDataset6Party(args.data, 'train', 32, 32, k=args.k)
 
     num_train = len(train_data)
