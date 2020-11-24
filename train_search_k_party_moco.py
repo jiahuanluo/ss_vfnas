@@ -114,25 +114,27 @@ def main():
     architect_A = Architect_A(model_A, args)
     architect_list = [architect_A] + [Architect_B(model_list[i], args) for i in range(1, args.k)]
 
-    os.makedirs("self_train_model_saved", exist_ok=True)
+    os.makedirs("self_train_darts_model_saved", exist_ok=True)
     if args.self_train:
         for i in range(args.k):
-            model_path = "self_train_model_saved/Party_{}_model.pt".format(i + 1)
+            model_path = "self_train_darts_model_saved/Party_{}_model.pt".format(i + 1)
             if not os.path.exists(model_path):
                 moco_optimizer = torch.optim.Adam(
                     list(model_list[i].parameters()) + list(model_list[i].arch_parameters()))
                 model_momentum = model_list[i].new(requires_grad=False)
-                self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=0,
+                self_train(train_queue, encoder=model_list[i], momentum_encoder=model_momentum, index=i,
                            optimizer=moco_optimizer, epoch=50, loss_function=criterion, temperature=0.07,
                            momentum_rate=0.999)
                 torch.save(model_list[i].state_dict(), model_path)
                 logging.info("Self-train model {} finished and saved.".format(i + 1))
             else:
                 if i == 0:
-                    model_list[i].classifier = nn.Linear(args.u_dim * 6, NUM_CLASSES)
+                    model_list[i].classifier = nn.Linear(args.u_dim * 1, NUM_CLASSES)
                     model_list[i].load_state_dict(torch.load(model_path))
                     model_list[i].classifier = nn.Linear(args.u_dim * args.k, NUM_CLASSES)
-                    model_list[i].cuda()
+                else:
+                    model_list[i].load_state_dict(torch.load(model_path))
+                model_list[i].cuda()
                 logging.info("Self-train model {} loaded.".format(i + 1))
 
     best_top1 = 0.
